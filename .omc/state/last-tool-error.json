@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"git status 2>&1; echo \\\"---\\\"; git rev-parse --is-inside-work-tree 2>&1\"}",
+  "error": "Exit code 128\nfatal: not a git repository (or any of the parent directories): .git\n---\nfatal: not a git repository (or any of the parent directories): .git",
+  "timestamp": "2026-07-05T10:37:23.958Z",
+  "retry_count": 1
+}
