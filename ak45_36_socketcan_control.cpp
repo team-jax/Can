@@ -19,9 +19,27 @@
 // ─── 내부 상태 ────────────────────────────────────────────────────────────────
 static int              can_sock = -1;
 static volatile int     g_running = 0;
-static MotorState       g_state;
+static MotorState       g_state[NUM_MOTORS];
 static pthread_mutex_t  g_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t        g_rx_thread;
+
+// controller_id → g_state 배열 인덱스. 등록되지 않은 ID면 -1.
+static int motor_index(uint8_t controller_id)
+{
+    if (controller_id == CONTROLLER_ID_1) return 0;
+    if (controller_id == CONTROLLER_ID_2) return 1;
+    return -1;
+}
+
+static uint8_t get_error_code(uint8_t controller_id)
+{
+    int idx = motor_index(controller_id);
+    if (idx < 0) return ERR_NONE;
+    pthread_mutex_lock(&g_state_mutex);
+    uint8_t err = g_state[idx].error_code;
+    pthread_mutex_unlock(&g_state_mutex);
+    return err;
+}
 
 // ─── 유틸리티 ─────────────────────────────────────────────────────────────────
 static void buffer_append_int32(uint8_t *buf, int32_t val, int *idx)
@@ -67,8 +85,10 @@ static int can_transmit_eid(uint32_t eid, const uint8_t *data, uint8_t len)
 }
 
 // ─── 피드백 파싱 (매뉴얼 5.2절) ──────────────────────────────────────────────
-static void parse_feedback(const uint8_t *data, uint8_t dlc)
+static void parse_feedback(uint8_t controller_id, const uint8_t *data, uint8_t dlc)
 {
+    int idx = motor_index(controller_id);
+    if (idx < 0) return;
     if (dlc < 8) return;
 
     int16_t pos_raw = (int16_t)((data[0] << 8) | data[1]);
@@ -85,13 +105,13 @@ static void parse_feedback(const uint8_t *data, uint8_t dlc)
     clock_gettime(CLOCK_MONOTONIC, &s.last_rx);
 
     pthread_mutex_lock(&g_state_mutex);
-    g_state = s;
+    g_state[idx] = s;
     pthread_mutex_unlock(&g_state_mutex);
 
     // 에러 코드 비정상 시 경고 출력 (§5 규칙 3)
     if (s.error_code != ERR_NONE) {
-        fprintf(stderr, "[ak45] ERROR code=%d (%s), 명령 중단 권고\n",
-                s.error_code, ak45_error_str(s.error_code));
+        fprintf(stderr, "[ak45] ID=0x%02X ERROR code=%d (%s), 명령 중단 권고\n",
+                controller_id, s.error_code, ak45_error_str(s.error_code));
     }
 }
 
@@ -114,19 +134,24 @@ static void *rx_thread(void *arg)
         if (!(frame.can_id & CAN_EFF_FLAG)) continue;
 
         uint32_t eid = frame.can_id & CAN_EFF_MASK;
-        if (eid == (uint32_t)FEEDBACK_CAN_ID) {
-            parse_feedback(frame.data, frame.can_dlc);
+        uint8_t  rx_func_id     = (eid >> 8) & 0xFF;
+        uint8_t  rx_controller_id = eid & 0xFF;
+        if (rx_func_id == FEEDBACK_FUNC_ID) {
+            parse_feedback(rx_controller_id, frame.data, frame.can_dlc);
         }
     }
     return NULL;
 }
 
 // ─── 워치독 확인 ──────────────────────────────────────────────────────────────
-int ak45_is_watchdog_ok(void)
+int ak45_is_watchdog_ok(uint8_t controller_id)
 {
+    int idx = motor_index(controller_id);
+    if (idx < 0) return 0;
+
     pthread_mutex_lock(&g_state_mutex);
-    int valid = g_state.valid;
-    long elapsed = valid ? ms_elapsed(&g_state.last_rx) : WATCHDOG_TIMEOUT_MS + 1;
+    int valid = g_state[idx].valid;
+    long elapsed = valid ? ms_elapsed(&g_state[idx].last_rx) : WATCHDOG_TIMEOUT_MS + 1;
     pthread_mutex_unlock(&g_state_mutex);
 
     return valid && (elapsed < WATCHDOG_TIMEOUT_MS);
@@ -162,7 +187,7 @@ int ak45_init(void)
         return -1;
     }
 
-    memset(&g_state, 0, sizeof(g_state));
+    memset(g_state, 0, sizeof(g_state));
     g_running = 1;
 
     if (pthread_create(&g_rx_thread, NULL, rx_thread, NULL) != 0) {
@@ -172,8 +197,8 @@ int ak45_init(void)
         return -1;
     }
 
-    printf("[ak45] 초기화 완료. 인터페이스=%s, Controller_ID=0x%02X\n",
-           CAN_INTERFACE, CONTROLLER_ID);
+    printf("[ak45] 초기화 완료. 인터페이스=%s, Controller_ID=0x%02X,0x%02X\n",
+           CAN_INTERFACE, CONTROLLER_ID_1, CONTROLLER_ID_2);
     return 0;
 }
 
@@ -193,25 +218,27 @@ void ak45_close(void)
 
 // ─── 명령 함수들 ──────────────────────────────────────────────────────────────
 
-int ak45_set_duty(float duty)
+int ak45_set_duty(uint8_t controller_id, float duty)
 {
+    if (motor_index(controller_id) < 0) return -1;
+
     duty = clampf(duty, -0.95f, 0.95f);
     int32_t val = (int32_t)(duty * 100000.0f);
     uint8_t buf[4];
     int idx = 0;
     buffer_append_int32(buf, val, &idx);
-    uint32_t eid = ((uint32_t)CAN_PACKET_SET_DUTY << 8) | CONTROLLER_ID;
+    uint32_t eid = ((uint32_t)CAN_PACKET_SET_DUTY << 8) | controller_id;
     return can_transmit_eid(eid, buf, 4);
 }
 
-int ak45_set_current(float current_a)
+int ak45_set_current(uint8_t controller_id, float current_a)
 {
+    if (motor_index(controller_id) < 0) return -1;
+
     // 에러 상태면 명령 차단
-    pthread_mutex_lock(&g_state_mutex);
-    uint8_t err = g_state.error_code;
-    pthread_mutex_unlock(&g_state_mutex);
+    uint8_t err = get_error_code(controller_id);
     if (err != ERR_NONE) {
-        fprintf(stderr, "[ak45] 에러(%d) 상태에서 명령 차단\n", err);
+        fprintf(stderr, "[ak45] ID=0x%02X 에러(%d) 상태에서 명령 차단\n", controller_id, err);
         return -1;
     }
 
@@ -220,28 +247,30 @@ int ak45_set_current(float current_a)
     uint8_t buf[4];
     int idx = 0;
     buffer_append_int32(buf, val, &idx);
-    uint32_t eid = ((uint32_t)CAN_PACKET_SET_CURRENT << 8) | CONTROLLER_ID;
+    uint32_t eid = ((uint32_t)CAN_PACKET_SET_CURRENT << 8) | controller_id;
     return can_transmit_eid(eid, buf, 4);
 }
 
-int ak45_set_current_brake(float current_a)
+int ak45_set_current_brake(uint8_t controller_id, float current_a)
 {
+    if (motor_index(controller_id) < 0) return -1;
+
     current_a = clampf(current_a, 0.0f, SOFT_LIMIT_CURRENT_A);
     int32_t val = (int32_t)(current_a * 1000.0f);
     uint8_t buf[4];
     int idx = 0;
     buffer_append_int32(buf, val, &idx);
-    uint32_t eid = ((uint32_t)CAN_PACKET_SET_CURRENT_BRAKE << 8) | CONTROLLER_ID;
+    uint32_t eid = ((uint32_t)CAN_PACKET_SET_CURRENT_BRAKE << 8) | controller_id;
     return can_transmit_eid(eid, buf, 4);
 }
 
-int ak45_set_rpm(int32_t erpm)
+int ak45_set_rpm(uint8_t controller_id, int32_t erpm)
 {
-    pthread_mutex_lock(&g_state_mutex);
-    uint8_t err = g_state.error_code;
-    pthread_mutex_unlock(&g_state_mutex);
+    if (motor_index(controller_id) < 0) return -1;
+
+    uint8_t err = get_error_code(controller_id);
     if (err != ERR_NONE) {
-        fprintf(stderr, "[ak45] 에러(%d) 상태에서 명령 차단\n", err);
+        fprintf(stderr, "[ak45] ID=0x%02X 에러(%d) 상태에서 명령 차단\n", controller_id, err);
         return -1;
     }
 
@@ -249,17 +278,17 @@ int ak45_set_rpm(int32_t erpm)
     uint8_t buf[4];
     int idx = 0;
     buffer_append_int32(buf, erpm, &idx);
-    uint32_t eid = ((uint32_t)CAN_PACKET_SET_RPM << 8) | CONTROLLER_ID;
+    uint32_t eid = ((uint32_t)CAN_PACKET_SET_RPM << 8) | controller_id;
     return can_transmit_eid(eid, buf, 4);
 }
 
-int ak45_set_position(float deg)
+int ak45_set_position(uint8_t controller_id, float deg)
 {
-    pthread_mutex_lock(&g_state_mutex);
-    uint8_t err = g_state.error_code;
-    pthread_mutex_unlock(&g_state_mutex);
+    if (motor_index(controller_id) < 0) return -1;
+
+    uint8_t err = get_error_code(controller_id);
     if (err != ERR_NONE) {
-        fprintf(stderr, "[ak45] 에러(%d) 상태에서 명령 차단\n", err);
+        fprintf(stderr, "[ak45] ID=0x%02X 에러(%d) 상태에서 명령 차단\n", controller_id, err);
         return -1;
     }
 
@@ -268,26 +297,28 @@ int ak45_set_position(float deg)
     uint8_t buf[4];
     int idx = 0;
     buffer_append_int32(buf, val, &idx);
-    uint32_t eid = ((uint32_t)CAN_PACKET_SET_POS << 8) | CONTROLLER_ID;
+    uint32_t eid = ((uint32_t)CAN_PACKET_SET_POS << 8) | controller_id;
     return can_transmit_eid(eid, buf, 4);
 }
 
-int ak45_set_origin(uint8_t permanent)
+int ak45_set_origin(uint8_t controller_id, uint8_t permanent)
 {
+    if (motor_index(controller_id) < 0) return -1;
+
     // permanent=1은 듀얼 엔코더 모델 전용
     uint8_t buf[1] = { (uint8_t)(permanent ? 1u : 0u) };
-    uint32_t eid = ((uint32_t)CAN_PACKET_SET_ORIGIN << 8) | CONTROLLER_ID;
+    uint32_t eid = ((uint32_t)CAN_PACKET_SET_ORIGIN << 8) | controller_id;
     return can_transmit_eid(eid, buf, 1);
 }
 
-int ak45_set_pos_spd(float deg, int16_t spd_erpm_div10, int16_t acc)
+int ak45_set_pos_spd(uint8_t controller_id, float deg, int16_t spd_erpm_div10, int16_t acc)
 {
+    if (motor_index(controller_id) < 0) return -1;
+
     // 모드 6: pos(int32) + spd(int16, ERPM÷10) + acc(int16, 10 ERPM/s²)
-    pthread_mutex_lock(&g_state_mutex);
-    uint8_t err = g_state.error_code;
-    pthread_mutex_unlock(&g_state_mutex);
+    uint8_t err = get_error_code(controller_id);
     if (err != ERR_NONE) {
-        fprintf(stderr, "[ak45] 에러(%d) 상태에서 명령 차단\n", err);
+        fprintf(stderr, "[ak45] ID=0x%02X 에러(%d) 상태에서 명령 차단\n", controller_id, err);
         return -1;
     }
 
@@ -304,21 +335,33 @@ int ak45_set_pos_spd(float deg, int16_t spd_erpm_div10, int16_t acc)
     buf[6] = (acc >> 8) & 0xFF;
     buf[7] =  acc       & 0xFF;
 
-    uint32_t eid = ((uint32_t)CAN_PACKET_SET_POS_SPD << 8) | CONTROLLER_ID;
+    uint32_t eid = ((uint32_t)CAN_PACKET_SET_POS_SPD << 8) | controller_id;
     return can_transmit_eid(eid, buf, 8);
+}
+
+int ak45_emergency_stop_one(uint8_t controller_id)
+{
+    // Current Brake 0A 송신 (§5 규칙 2)
+    return ak45_set_current_brake(controller_id, 0.0f);
 }
 
 int ak45_emergency_stop(void)
 {
-    // Current Brake 0A 송신 (§5 규칙 2)
-    return ak45_set_current_brake(0.0f);
+    int r1 = ak45_emergency_stop_one(CONTROLLER_ID_1);
+    int r2 = ak45_emergency_stop_one(CONTROLLER_ID_2);
+    return (r1 == 0 && r2 == 0) ? 0 : -1;
 }
 
 // ─── 상태 조회 ────────────────────────────────────────────────────────────────
-MotorState ak45_get_state(void)
+MotorState ak45_get_state(uint8_t controller_id)
 {
+    MotorState s;
+    memset(&s, 0, sizeof(s));
+    int idx = motor_index(controller_id);
+    if (idx < 0) return s;
+
     pthread_mutex_lock(&g_state_mutex);
-    MotorState s = g_state;
+    s = g_state[idx];
     pthread_mutex_unlock(&g_state_mutex);
     return s;
 }

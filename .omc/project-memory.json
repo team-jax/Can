@@ -1,0 +1,74 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1783268196466,
+  "projectRoot": "/home/leejaejun/Documents/can_ak45",
+  "techStack": {
+    "languages": [
+      {
+        "name": "C/C++",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "Makefile"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "make build",
+    "testCommand": "make test",
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {},
+  "hotPaths": [
+    {
+      "path": "main.cpp",
+      "accessCount": 19,
+      "lastAccessed": 1783270732374,
+      "type": "file"
+    },
+    {
+      "path": "ak45_36_socketcan_control.cpp",
+      "accessCount": 15,
+      "lastAccessed": 1783270717116,
+      "type": "file"
+    },
+    {
+      "path": "ak45_36_socketcan_control.h",
+      "accessCount": 10,
+      "lastAccessed": 1783270717393,
+      "type": "file"
+    },
+    {
+      "path": "AGENTS.md",
+      "accessCount": 6,
+      "lastAccessed": 1783270712056,
+      "type": "file"
+    },
+    {
+      "path": "run.txt",
+      "accessCount": 2,
+      "lastAccessed": 1783268704102,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

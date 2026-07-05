@@ -5,13 +5,15 @@
 #include <pthread.h>
 
 // ─── 프로토콜 상수 (매뉴얼 5.1~5.2절) ───────────────────────────────────────
-#define CONTROLLER_ID        0x01       // CAN ID 1번
+#define CONTROLLER_ID_1      0x01       // 1번 모터 CAN ID
+#define CONTROLLER_ID_2      0x02       // 2번 모터 CAN ID
+#define NUM_MOTORS           2
 #define CAN_INTERFACE        "can0"
 #define CAN_BITRATE          1000000    // 1 Mbps (고정)
 
 #define FEEDBACK_FUNC_ID     0x29
-// 피드백 CAN ID = (0x29 << 8) | Controller_ID
-#define FEEDBACK_CAN_ID      ((FEEDBACK_FUNC_ID << 8) | CONTROLLER_ID)
+// 피드백 CAN ID = (0x29 << 8) | Controller_ID (모터별로 다름)
+#define FEEDBACK_CAN_ID(controller_id)  (((uint32_t)FEEDBACK_FUNC_ID << 8) | (controller_id))
 
 // ─── 소프트 리밋 (CLAUDE.md §4~5) ────────────────────────────────────────────
 // 전류: 정격/피크 미확정 → 확인 전까지 ±5A
@@ -63,19 +65,20 @@ typedef struct {
 int  ak45_init(void);          // SocketCAN 소켓 열기 + 피드백 스레드 시작
 void ak45_close(void);         // 안전 정지 후 소켓 닫기
 
-// 명령 함수 (클램핑 포함)
-int  ak45_set_duty(float duty);                  // 0.005~0.95
-int  ak45_set_current(float current_a);           // ±SOFT_LIMIT_CURRENT_A
-int  ak45_set_current_brake(float current_a);     // 0~SOFT_LIMIT_CURRENT_A
-int  ak45_set_rpm(int32_t erpm);                  // ±SOFT_LIMIT_ERPM
-int  ak45_set_position(float deg);               // ±SOFT_LIMIT_POS_DEG
-int  ak45_set_origin(uint8_t permanent);          // 0=임시, 1=영구(듀얼 엔코더)
-int  ak45_set_pos_spd(float deg, int16_t spd_erpm_div10, int16_t acc);
+// 명령 함수 (클램핑 포함). controller_id는 CONTROLLER_ID_1/CONTROLLER_ID_2 중 하나.
+int  ak45_set_duty(uint8_t controller_id, float duty);                  // 0.005~0.95
+int  ak45_set_current(uint8_t controller_id, float current_a);          // ±SOFT_LIMIT_CURRENT_A
+int  ak45_set_current_brake(uint8_t controller_id, float current_a);    // 0~SOFT_LIMIT_CURRENT_A
+int  ak45_set_rpm(uint8_t controller_id, int32_t erpm);                 // ±SOFT_LIMIT_ERPM
+int  ak45_set_position(uint8_t controller_id, float deg);               // ±SOFT_LIMIT_POS_DEG
+int  ak45_set_origin(uint8_t controller_id, uint8_t permanent);         // 0=임시, 1=영구(듀얼 엔코더)
+int  ak45_set_pos_spd(uint8_t controller_id, float deg, int16_t spd_erpm_div10, int16_t acc);
 
 // 안전 정지 (Current Brake 0A)
-int  ak45_emergency_stop(void);
+int  ak45_emergency_stop(void);                       // 등록된 모든 모터 정지
+int  ak45_emergency_stop_one(uint8_t controller_id);   // 지정 모터만 정지
 
 // 상태 읽기
-MotorState ak45_get_state(void);
-int        ak45_is_watchdog_ok(void);   // 0=타임아웃, 1=정상
+MotorState ak45_get_state(uint8_t controller_id);
+int        ak45_is_watchdog_ok(uint8_t controller_id);   // 0=타임아웃, 1=정상
 const char *ak45_error_str(uint8_t code);
