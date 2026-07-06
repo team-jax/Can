@@ -7,7 +7,11 @@
 // ─── 프로토콜 상수 (매뉴얼 5.1~5.2절) ───────────────────────────────────────
 #define CONTROLLER_ID_1      0x01       // 1번 모터 CAN ID
 #define CONTROLLER_ID_2      0x02       // 2번 모터 CAN ID
-#define NUM_MOTORS           2
+#define CONTROLLER_ID_3      0x03       // 3번 모터 CAN ID
+#define CONTROLLER_ID_4      0x04       // 4번 모터 CAN ID
+#define CONTROLLER_ID_5      0x05       // 5번 모터 CAN ID
+#define CONTROLLER_ID_6      0x06       // 6번 모터 CAN ID
+#define NUM_MOTORS           6
 #define CAN_INTERFACE        "can0"
 #define CAN_BITRATE          1000000    // 1 Mbps (고정)
 
@@ -65,7 +69,7 @@ typedef struct {
 int  ak45_init(void);          // SocketCAN 소켓 열기 + 피드백 스레드 시작
 void ak45_close(void);         // 안전 정지 후 소켓 닫기
 
-// 명령 함수 (클램핑 포함). controller_id는 CONTROLLER_ID_1/CONTROLLER_ID_2 중 하나.
+// 명령 함수 (클램핑 포함). controller_id는 CONTROLLER_ID_1~CONTROLLER_ID_6 중 하나.
 int  ak45_set_duty(uint8_t controller_id, float duty);                  // 0.005~0.95
 int  ak45_set_current(uint8_t controller_id, float current_a);          // ±SOFT_LIMIT_CURRENT_A
 int  ak45_set_current_brake(uint8_t controller_id, float current_a);    // 0~SOFT_LIMIT_CURRENT_A

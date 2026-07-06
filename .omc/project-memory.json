@@ -40,33 +40,39 @@
   "directoryMap": {},
   "hotPaths": [
     {
-      "path": "main.cpp",
-      "accessCount": 19,
-      "lastAccessed": 1783270732374,
+      "path": "ak45_36_socketcan_control.cpp",
+      "accessCount": 26,
+      "lastAccessed": 1783335850259,
       "type": "file"
     },
     {
-      "path": "ak45_36_socketcan_control.cpp",
-      "accessCount": 15,
-      "lastAccessed": 1783270717116,
+      "path": "main.cpp",
+      "accessCount": 22,
+      "lastAccessed": 1783333717505,
       "type": "file"
     },
     {
       "path": "ak45_36_socketcan_control.h",
-      "accessCount": 10,
-      "lastAccessed": 1783270717393,
+      "accessCount": 14,
+      "lastAccessed": 1783333717751,
       "type": "file"
     },
     {
       "path": "AGENTS.md",
-      "accessCount": 6,
-      "lastAccessed": 1783270712056,
+      "accessCount": 11,
+      "lastAccessed": 1783327695358,
       "type": "file"
     },
     {
       "path": "run.txt",
       "accessCount": 2,
       "lastAccessed": 1783268704102,
+      "type": "file"
+    },
+    {
+      "path": "Makefile",
+      "accessCount": 1,
+      "lastAccessed": 1783327639476,
       "type": "file"
     }
   ],

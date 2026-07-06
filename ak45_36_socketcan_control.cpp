@@ -12,22 +12,34 @@
 
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/file.h>
+#include <fcntl.h>
 #include <net/if.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
 
+#define LOCK_FILE_PATH "/tmp/ak45_ctrl.lock"
+
 // ─── 내부 상태 ────────────────────────────────────────────────────────────────
+static int              g_lock_fd = -1;
 static int              can_sock = -1;
 static volatile int     g_running = 0;
 static MotorState       g_state[NUM_MOTORS];
 static pthread_mutex_t  g_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t        g_rx_thread;
 
+// 등록된 컨트롤러 ID 목록 (g_state 배열 인덱스 순서와 일치)
+static const uint8_t g_controller_ids[NUM_MOTORS] = {
+    CONTROLLER_ID_1, CONTROLLER_ID_2, CONTROLLER_ID_3,
+    CONTROLLER_ID_4, CONTROLLER_ID_5, CONTROLLER_ID_6
+};
+
 // controller_id → g_state 배열 인덱스. 등록되지 않은 ID면 -1.
 static int motor_index(uint8_t controller_id)
 {
-    if (controller_id == CONTROLLER_ID_1) return 0;
-    if (controller_id == CONTROLLER_ID_2) return 1;
+    for (int i = 0; i < NUM_MOTORS; i++) {
+        if (g_controller_ids[i] == controller_id) return i;
+    }
     return -1;
 }
 
@@ -160,6 +172,21 @@ int ak45_is_watchdog_ok(uint8_t controller_id)
 // ─── 초기화 ───────────────────────────────────────────────────────────────────
 int ak45_init(void)
 {
+    // 동일 CAN 버스를 서로 다른 프로세스가 동시에 제어하면 큐 경쟁/충돌 명령이
+    // 발생하므로(ENOBUFS 및 위험한 동시 명령), 프로세스당 1개만 실행되도록 잠금
+    g_lock_fd = open(LOCK_FILE_PATH, O_CREAT | O_RDWR, 0644);
+    if (g_lock_fd < 0) {
+        perror("[ak45] 잠금 파일 열기 실패");
+        return -1;
+    }
+    if (flock(g_lock_fd, LOCK_EX | LOCK_NB) < 0) {
+        fprintf(stderr, "[ak45] 이미 다른 ak45_ctrl 프로세스가 실행 중입니다. "
+                "같은 CAN 버스를 여러 프로세스가 동시에 제어할 수 없습니다.\n");
+        close(g_lock_fd);
+        g_lock_fd = -1;
+        return -1;
+    }
+
     can_sock = socket(PF_CAN, SOCK_RAW, CAN_RAW);
     if (can_sock < 0) {
         perror("[ak45] socket");
@@ -197,8 +224,9 @@ int ak45_init(void)
         return -1;
     }
 
-    printf("[ak45] 초기화 완료. 인터페이스=%s, Controller_ID=0x%02X,0x%02X\n",
-           CAN_INTERFACE, CONTROLLER_ID_1, CONTROLLER_ID_2);
+    printf("[ak45] 초기화 완료. 인터페이스=%s, Controller_ID=0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X\n",
+           CAN_INTERFACE, CONTROLLER_ID_1, CONTROLLER_ID_2, CONTROLLER_ID_3,
+           CONTROLLER_ID_4, CONTROLLER_ID_5, CONTROLLER_ID_6);
     return 0;
 }
 
@@ -213,6 +241,12 @@ void ak45_close(void)
         can_sock = -1;
     }
     pthread_join(g_rx_thread, NULL);
+
+    if (g_lock_fd >= 0) {
+        flock(g_lock_fd, LOCK_UN);
+        close(g_lock_fd);
+        g_lock_fd = -1;
+    }
     printf("[ak45] 종료.\n");
 }
 
@@ -347,9 +381,11 @@ int ak45_emergency_stop_one(uint8_t controller_id)
 
 int ak45_emergency_stop(void)
 {
-    int r1 = ak45_emergency_stop_one(CONTROLLER_ID_1);
-    int r2 = ak45_emergency_stop_one(CONTROLLER_ID_2);
-    return (r1 == 0 && r2 == 0) ? 0 : -1;
+    int ok = 0;
+    for (int i = 0; i < NUM_MOTORS; i++) {
+        if (ak45_emergency_stop_one(g_controller_ids[i]) != 0) ok = -1;
+    }
+    return ok;
 }
 
 // ─── 상태 조회 ────────────────────────────────────────────────────────────────

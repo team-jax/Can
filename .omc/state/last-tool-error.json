@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"timeout 3 candump can0 2>&1 | head -20\"}",
+  "error": "Exit code 143\nCommand timed out after 2m 0s\nTerminated",
+  "timestamp": "2026-07-06T10:59:17.056Z",
+  "retry_count": 1
+}

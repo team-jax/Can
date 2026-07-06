@@ -9,24 +9,42 @@
 
 static volatile int g_quit = 0;
 
-static const uint8_t MOTOR_IDS[2] = { CONTROLLER_ID_1, CONTROLLER_ID_2 };
+static const uint8_t MOTOR_IDS[NUM_MOTORS] = {
+    CONTROLLER_ID_1, CONTROLLER_ID_2, CONTROLLER_ID_3,
+    CONTROLLER_ID_4, CONTROLLER_ID_5, CONTROLLER_ID_6
+};
 
 static pthread_mutex_t g_target_mutex = PTHREAD_MUTEX_INITIALIZER;
-static float g_target_deg[2] = { 0.0f, 0.0f };
-static int   g_has_target[2] = { 0, 0 };
+static float g_target_deg[NUM_MOTORS] = { 0 };
+static int   g_has_target[NUM_MOTORS] = { 0 };
 
 static void sig_handler(int sig) { (void)sig; g_quit = 1; }
 
+// 공백으로 구분된 각도값을 최대 max_count개까지 파싱
+static int parse_floats(const char *str, float *out, int max_count)
+{
+    int count = 0;
+    const char *p = str;
+    while (count < max_count) {
+        char *end;
+        float v = strtof(p, &end);
+        if (end == p) break;
+        out[count++] = v;
+        p = end;
+    }
+    return count;
+}
+
 // 실행 중 터미널 입력으로 목표각도를 갱신하는 스레드
-// 입력 형식: "30"           → ID1(1번 모터)만 30도로 이동
-//            "30 20" / ">30 20" → ID1=30도, ID2(2번 모터)=20도 동시 이동
+// 입력 형식: "30"              → ID1(1번 모터)만 30도로 이동
+//            "30 20 10" / ">30 20 10" → ID1=30도, ID2=20도, ID3=10도 동시 이동 (최대 NUM_MOTORS개)
 static void *input_thread(void *arg)
 {
     (void)arg;
-    char line[128];
+    char line[256];
 
     while (!g_quit) {
-        printf("\n> 목표각도 입력 (1번: 30 / 1·2번: 30 20, q=종료): ");
+        printf("\n> 목표각도 입력 (예: 30 / 30 20 10 (최대 %d개), q=종료): ", NUM_MOTORS);
         fflush(stdout);
 
         if (!fgets(line, sizeof(line), stdin)) break;
@@ -39,54 +57,29 @@ static void *input_thread(void *arg)
         }
         if (line[0] == '\0') continue;
 
-        if (line[0] == '>') {
-            float d1, d2;
-            if (sscanf(line + 1, "%f %f", &d1, &d2) != 2) {
-                printf("형식: >각도1 각도2 (예: >30 20)\n");
-                continue;
-            }
+        const char *p = line;
+        if (*p == '>') p++;   // '>' 접두사는 기존 표기와의 호환을 위해 허용
 
-            pthread_mutex_lock(&g_target_mutex);
-            g_target_deg[0] = d1;
-            g_target_deg[1] = d2;
-            g_has_target[0] = 1;
-            g_has_target[1] = 1;
-            pthread_mutex_unlock(&g_target_mutex);
-
-            printf("목표 위치 갱신: ID1=%.2f도, ID2=%.2f도 (소프트 리밋 ±%.1f도로 클램핑됨)\n",
-                   d1, d2, SOFT_LIMIT_POS_DEG);
-            continue;
-        }
-
-        float d1, d2;
-        if (sscanf(line, "%f %f", &d1, &d2) == 2) {
-            // ">" 없이 "30 20" 형태로 입력해도 두 모터 동시 제어
-            pthread_mutex_lock(&g_target_mutex);
-            g_target_deg[0] = d1;
-            g_target_deg[1] = d2;
-            g_has_target[0] = 1;
-            g_has_target[1] = 1;
-            pthread_mutex_unlock(&g_target_mutex);
-
-            printf("목표 위치 갱신: ID1=%.2f도, ID2=%.2f도 (소프트 리밋 ±%.1f도로 클램핑됨)\n",
-                   d1, d2, SOFT_LIMIT_POS_DEG);
-            continue;
-        }
-
-        char *end;
-        float deg = strtof(line, &end);
-        if (end == line) {
-            printf("숫자를 입력하세요 (예: 30, -45), 두 모터는 30 20 (또는 >30 20), q로 종료\n");
+        float vals[NUM_MOTORS];
+        int   n = parse_floats(p, vals, NUM_MOTORS);
+        if (n == 0) {
+            printf("숫자를 입력하세요 (예: 30, -45), 여러 모터는 공백으로 구분 (최대 %d개), q로 종료\n",
+                   NUM_MOTORS);
             continue;
         }
 
         pthread_mutex_lock(&g_target_mutex);
-        g_target_deg[0] = deg;
-        g_has_target[0] = 1;
+        for (int i = 0; i < n; i++) {
+            g_target_deg[i] = vals[i];
+            g_has_target[i] = 1;
+        }
         pthread_mutex_unlock(&g_target_mutex);
 
-        printf("목표 위치 갱신: ID1=%.2f도 (소프트 리밋 ±%.1f도로 클램핑됨)\n",
-               deg, SOFT_LIMIT_POS_DEG);
+        printf("목표 위치 갱신:");
+        for (int i = 0; i < n; i++) {
+            printf(" ID%d=%.2f도", i + 1, vals[i]);
+        }
+        printf(" (소프트 리밋 ±%.1f도로 클램핑됨)\n", SOFT_LIMIT_POS_DEG);
     }
     return NULL;
 }
@@ -96,13 +89,9 @@ int main(int argc, char *argv[])
     signal(SIGINT,  sig_handler);
     signal(SIGTERM, sig_handler);
 
-    if (argc > 1) {
-        g_target_deg[0] = (float)atof(argv[1]);
-        g_has_target[0] = 1;
-    }
-    if (argc > 2) {
-        g_target_deg[1] = (float)atof(argv[2]);
-        g_has_target[1] = 1;
+    for (int i = 0; i < NUM_MOTORS && i + 1 < argc; i++) {
+        g_target_deg[i] = (float)atof(argv[i + 1]);
+        g_has_target[i] = 1;
     }
 
     if (ak45_init() < 0) {
@@ -116,9 +105,14 @@ int main(int argc, char *argv[])
     pthread_detach(input_tid);
 
     printf("피드백 모니터링 시작 (Ctrl+C 또는 q 입력으로 종료)\n");
-    if (g_has_target[0] || g_has_target[1]) {
-        printf("초기 목표 위치: ID1=%.2f도, ID2=%.2f도 (소프트 리밋 ±%.1f도로 클램핑됨)\n",
-               g_target_deg[0], g_target_deg[1], SOFT_LIMIT_POS_DEG);
+    int any_target = 0;
+    for (int i = 0; i < NUM_MOTORS; i++) any_target |= g_has_target[i];
+    if (any_target) {
+        printf("초기 목표 위치:");
+        for (int i = 0; i < NUM_MOTORS; i++) {
+            if (g_has_target[i]) printf(" ID%d=%.2f도", i + 1, g_target_deg[i]);
+        }
+        printf(" (소프트 리밋 ±%.1f도로 클램핑됨)\n", SOFT_LIMIT_POS_DEG);
     }
     printf("실행 중 언제든 각도를 입력하면 목표 위치가 즉시 갱신됩니다.\n");
     printf("%-4s %-10s %-10s %-10s %-8s %s\n",
@@ -128,7 +122,7 @@ int main(int argc, char *argv[])
     sleep(1);
 
     while (!g_quit) {
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < NUM_MOTORS; i++) {
             uint8_t id = MOTOR_IDS[i];
 
             if (!ak45_is_watchdog_ok(id)) {
@@ -149,9 +143,9 @@ int main(int argc, char *argv[])
             }
         }
 
-        char line[256];
+        char line[512];
         int  off = 0;
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < NUM_MOTORS; i++) {
             uint8_t id = MOTOR_IDS[i];
             MotorState s = ak45_get_state(id);
             if (i > 0) off += snprintf(line + off, sizeof(line) - off, " | ");
