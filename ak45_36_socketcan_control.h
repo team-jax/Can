@@ -24,7 +24,7 @@
 #define SOFT_LIMIT_CURRENT_A     5.0f
 // ERPM: NPP 미확정 → 확인 전까지 보수적 상한. 확정 후 아래 공식으로 갱신.
 //   출력축 6 rad/s ≈ 57 RPM → ERPM = 57 × NPP × 36 (NPP 확인 후 수정)
-#define SOFT_LIMIT_ERPM          10000
+#define SOFT_LIMIT_ERPM          3000 // 시연용
 // 위치: 프로토콜 최대 ±36000° 이내에서 운영 범위 제한
 #define SOFT_LIMIT_POS_DEG       360.0f  // ±1회전
 

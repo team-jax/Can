@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1783268196466,
+  "lastScanned": 1783947739628,
   "projectRoot": "/home/leejaejun/Documents/can_ak45",
   "techStack": {
     "languages": [
@@ -41,38 +41,38 @@
   "hotPaths": [
     {
       "path": "ak45_36_socketcan_control.cpp",
-      "accessCount": 26,
-      "lastAccessed": 1783335850259,
+      "accessCount": 27,
+      "lastAccessed": 1783947817081,
       "type": "file"
     },
     {
       "path": "main.cpp",
-      "accessCount": 22,
-      "lastAccessed": 1783333717505,
+      "accessCount": 23,
+      "lastAccessed": 1783947795284,
       "type": "file"
     },
     {
       "path": "ak45_36_socketcan_control.h",
-      "accessCount": 14,
-      "lastAccessed": 1783333717751,
+      "accessCount": 18,
+      "lastAccessed": 1783947964645,
       "type": "file"
     },
     {
       "path": "AGENTS.md",
-      "accessCount": 11,
-      "lastAccessed": 1783327695358,
+      "accessCount": 17,
+      "lastAccessed": 1783947880029,
       "type": "file"
     },
     {
       "path": "run.txt",
-      "accessCount": 2,
-      "lastAccessed": 1783268704102,
+      "accessCount": 3,
+      "lastAccessed": 1783947817024,
       "type": "file"
     },
     {
       "path": "Makefile",
-      "accessCount": 1,
-      "lastAccessed": 1783327639476,
+      "accessCount": 2,
+      "lastAccessed": 1783947795816,
       "type": "file"
     }
   ],

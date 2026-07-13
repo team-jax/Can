@@ -1,4 +1,4 @@
-<!-- Generated: 2026-07-05 | Updated: 2026-07-05 -->
+<!-- Generated: 2026-07-05 | Updated: 2026-07-13 -->
 
 # can_ak45
 
@@ -10,8 +10,8 @@ CubeMars AK45-36 KV80 액추에이터 **최대 6대(ID1~ID6)** 를 Linux + CANab
 | File | Description |
 |------|-------------|
 | `ak45_36_socketcan_control.h` | API 선언, 프로토콜 상수(CONTROLLER_ID, 소프트 리밋), MotorState 구조체, CanPacketId/MotorError 열거형 |
-| `ak45_36_socketcan_control.cpp` | SocketCAN 초기화, 수신 스레드, 피드백 파싱(0x29), 명령 함수(클램핑·에러 차단 포함), 워치독 |
-| `main.cpp` | 피드백 모니터링 루프 예제. 실제 명령은 주석 처리된 예시 참조 |
+| `ak45_36_socketcan_control.cpp` | SocketCAN 초기화, 수신 스레드, 피드백 파싱(0x29), 명령 함수(클램핑·에러 차단 포함), 워치독, 프로세스 단일 실행 잠금(`flock`, `/tmp/ak45_ctrl.lock`) |
+| `main.cpp` | 피드백 모니터링 루프 + 터미널 입력 스레드(`input_thread`)로 실시간 목표각도 갱신, `ak45_set_position` 실제 호출 |
 | `Makefile` | `make` / `make clean`. 타겟 바이너리: `ak45_ctrl` |
 
 프로토콜 상세(매뉴얼 대조 완료), 미확정 사항 체크리스트, 안전 규칙은 별도 CLAUDE.md가 아니라 이 문서 하단의 "AK45-36 KV80 CAN Servo 모드 제어 프로젝트 문서" 섹션(§1~§8)에 통합되어 있다.
@@ -47,6 +47,7 @@ CubeMars AK45-36 KV80 액추에이터 **최대 6대(ID1~ID6)** 를 Linux + CANab
 - 새 명령 함수 추가 시 `controller_id` 인자를 받고, 에러 코드 차단(`get_error_code(controller_id) != ERR_NONE` 체크) 및 클램핑을 반드시 포함
 - 피드백 파싱은 `parse_feedback(controller_id, ...)` 단일 함수에서만 처리 — 스케일 혼동 방지(본 문서 §2.4)
 - 모드 6(Position-Velocity)의 속도 필드는 ERPM÷10 스케일 — 모드 3(RPM)의 ERPM 그대로와 혼동 주의
+- `ak45_ctrl`은 `/tmp/ak45_ctrl.lock`을 `flock`으로 잠그므로 동시에 두 번째 인스턴스를 실행하면 `ak45_init()`이 즉시 실패한다(같은 CAN 버스에 대한 명령 충돌 방지). 테스트 중 "초기화 실패" 원인이 이것일 수 있음
 
 ### Testing Requirements
 ```bash
@@ -98,11 +99,12 @@ CubeMars AK45-36 KV80 액추에이터를 Linux + CANable(SocketCAN) 환경에서
 | 프레임 | Extended Frame (29bit ID) ✅ (Servo 모드는 확장 프레임만 응답 — 공식 FAQ) |
 
 ### 파일 구성
-| 파일 | 역할 | 상태 |
-|---|---|---|
-| `AK45_36_ServoMode_CAN.ino` | Arduino + MCP2515 초기 프로토타입 | 레거시 |
-| `ak45_36_canable_servo_control.py` | Python(python-can) + CANable | 보조 |
-| `ak45_36_socketcan_control.cpp` | C++ + SocketCAN | **메인** |
+| 파일 | 역할 |
+|---|---|
+| `ak45_36_socketcan_control.h` | API 선언, 프로토콜 상수, MotorState 구조체 |
+| `ak45_36_socketcan_control.cpp` | C++ + SocketCAN 구현체 (유일한 제어 구현) |
+| `main.cpp` | 피드백 모니터링 + 터미널 목표각도 입력 CLI |
+| `Makefile` | 빌드 (`make` / `make clean`) |
 
 ---
 
