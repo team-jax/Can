@@ -12,7 +12,8 @@ CubeMars AK45-36 KV80 액추에이터 **최대 6대(ID1~ID6)** 를 Linux + CANab
 | `ak45_36_socketcan_control.h` | API 선언, 프로토콜 상수(CONTROLLER_ID, 소프트 리밋), MotorState 구조체, CanPacketId/MotorError 열거형 |
 | `ak45_36_socketcan_control.cpp` | SocketCAN 초기화, 수신 스레드, 피드백 파싱(0x29), 명령 함수(클램핑·에러 차단 포함), 워치독, 프로세스 단일 실행 잠금(`flock`, `/tmp/ak45_ctrl.lock`) |
 | `main.cpp` | 피드백 모니터링 루프 + 터미널 입력 스레드(`input_thread`)로 실시간 목표각도 갱신, `ak45_set_position` 실제 호출 |
-| `Makefile` | `make` / `make clean`. 타겟 바이너리: `ak45_ctrl` |
+| `demo_ramp.cpp` | 시연용 완속 이동 프로그램. 목표각도까지 한 번에 점프하지 않고 `--step`(기본 1도)씩 `--interval`(기본 150ms) 간격으로 계단식 이동. `sleep`으로 블로킹하지 않고 `clock_gettime` 기반 논블로킹 타이머로 스텝 전환 시각만 확인하며, 그 사이에도 100ms 주기 CAN 재송신·워치독 체크·피드백 출력은 계속 진행 |
+| `Makefile` | `make` / `make clean`. 타겟 바이너리: `ak45_ctrl`, `ak45_ctrl_demo` |
 
 프로토콜 상세(매뉴얼 대조 완료), 미확정 사항 체크리스트, 안전 규칙은 별도 CLAUDE.md가 아니라 이 문서 하단의 "AK45-36 KV80 CAN Servo 모드 제어 프로젝트 문서" 섹션(§1~§8)에 통합되어 있다.
 
@@ -56,8 +57,12 @@ make
 ./ak45_ctrl                  # 피드백 모니터링 (ID1~ID6 전부)
 ./ak45_ctrl 30 20 10          # 초기 목표: ID1=30도, ID2=20도, ID3=10도 (입력 개수만큼만 반영)
 candump can0                 # 송수신 프레임 덤프 확인 (0x2901=ID1 피드백 ... 0x2906=ID6 피드백)
+
+./ak45_ctrl_demo 45                              # 시연용: ID1을 현재 위치→45도까지 1도씩 천천히 이동
+./ak45_ctrl_demo 45 30 --step=0.5 --interval=200 # ID1=45도, ID2=30도 동시, 0.5도씩 200ms 간격
 ```
 실행 중 `>30 20 10` 입력 시 ID1=30도, ID2=20도, ID3=10도로 동시 이동. 숫자만 입력하면 ID1만 이동(기존 방식).
+`ak45_ctrl`과 `ak45_ctrl_demo`는 같은 `flock` 잠금(`/tmp/ak45_ctrl.lock`)을 공유하므로 동시에 두 개를 실행할 수 없다(같은 CAN 버스 명령 충돌 방지).
 
 ### Common Patterns
 - 명령 함수 패턴: `controller_id` 유효성(`motor_index() >= 0`) 확인 → 에러 체크 → 클램핑 → `buffer_append_int32` → `can_transmit_eid`

@@ -41,26 +41,32 @@
   "hotPaths": [
     {
       "path": "ak45_36_socketcan_control.cpp",
-      "accessCount": 27,
-      "lastAccessed": 1783947817081,
+      "accessCount": 28,
+      "lastAccessed": 1783999788642,
       "type": "file"
     },
     {
       "path": "main.cpp",
-      "accessCount": 23,
-      "lastAccessed": 1783947795284,
-      "type": "file"
-    },
-    {
-      "path": "ak45_36_socketcan_control.h",
-      "accessCount": 18,
-      "lastAccessed": 1783947964645,
+      "accessCount": 24,
+      "lastAccessed": 1783999758963,
       "type": "file"
     },
     {
       "path": "AGENTS.md",
-      "accessCount": 17,
-      "lastAccessed": 1783947880029,
+      "accessCount": 23,
+      "lastAccessed": 1784001439653,
+      "type": "file"
+    },
+    {
+      "path": "ak45_36_socketcan_control.h",
+      "accessCount": 19,
+      "lastAccessed": 1783999758660,
+      "type": "file"
+    },
+    {
+      "path": "Makefile",
+      "accessCount": 5,
+      "lastAccessed": 1784001434860,
       "type": "file"
     },
     {
@@ -70,9 +76,9 @@
       "type": "file"
     },
     {
-      "path": "Makefile",
-      "accessCount": 2,
-      "lastAccessed": 1783947795816,
+      "path": "demo_ramp.cpp",
+      "accessCount": 1,
+      "lastAccessed": 1783999873538,
       "type": "file"
     }
   ],
