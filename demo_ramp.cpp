@@ -24,7 +24,8 @@ static const uint8_t MOTOR_IDS[NUM_MOTORS] = {
 // step_interval_ms마다 step_deg만큼씩 값을 옮겨가며, 그 사이에도 SEND_INTERVAL_MS
 // 주기로 같은 목표를 계속 재전송한다 (blocking sleep 없이 tick 기반으로 진행).
 typedef struct {
-    int    active;
+    int    active;    // 1=아직 목표로 이동 중
+    int    stopped;   // 1=워치독 실패로 영구 정지, 더 이상 재송신 안 함
     float  final_deg;
     float  step_deg;
     float  current_deg;
@@ -109,36 +110,37 @@ int main(int argc, char *argv[])
     }
 
     while (!g_quit) {
-        int all_done = 1;
-
         for (int i = 0; i < n_targets; i++) {
             uint8_t id = MOTOR_IDS[i];
 
             if (!ak45_is_watchdog_ok(id)) {
                 fprintf(stderr, "\n[워치독] ID=0x%02X 피드백 %dms 초과 - 긴급 정지\n", id, WATCHDOG_TIMEOUT_MS);
                 ak45_emergency_stop_one(id);
-                ramp[i].active = 0;
+                ramp[i].active  = 0;
+                ramp[i].stopped = 1;   // 워치독 실패 모터는 더 이상 위치 명령 재송신하지 않음
                 continue;
             }
-            if (!ramp[i].active) continue;
+            if (ramp[i].stopped) continue;
 
-            // 논블로킹 스텝 타이머: 여기서 sleep하지 않고 경과 시간만 확인 -
-            // 그 사이 SEND_INTERVAL_MS 주기의 재전송/피드백 출력은 계속 진행된다.
-            if (ms_since(&ramp[i].last_step_time) >= ramp[i].step_interval_ms) {
-                float diff = ramp[i].final_deg - ramp[i].current_deg;
-                if (fabsf(diff) <= ramp[i].step_deg) {
-                    ramp[i].current_deg = ramp[i].final_deg;
-                    ramp[i].active = 0;
-                    printf("\n[demo] ID%d 목표(%.2f도) 도달\n", i + 1, ramp[i].final_deg);
-                } else {
-                    ramp[i].current_deg += (diff > 0 ? ramp[i].step_deg : -ramp[i].step_deg);
+            if (ramp[i].active) {
+                // 논블로킹 스텝 타이머: 여기서 sleep하지 않고 경과 시간만 확인 -
+                // 그 사이 SEND_INTERVAL_MS 주기의 재전송/피드백 출력은 계속 진행된다.
+                if (ms_since(&ramp[i].last_step_time) >= ramp[i].step_interval_ms) {
+                    float diff = ramp[i].final_deg - ramp[i].current_deg;
+                    if (fabsf(diff) <= ramp[i].step_deg) {
+                        ramp[i].current_deg = ramp[i].final_deg;
+                        ramp[i].active = 0;
+                        printf("\n[demo] ID%d 목표(%.2f도) 도달 - 위치 유지 신호 계속 송신 (Ctrl+C로 종료)\n",
+                               i + 1, ramp[i].final_deg);
+                    } else {
+                        ramp[i].current_deg += (diff > 0 ? ramp[i].step_deg : -ramp[i].step_deg);
+                    }
+                    clock_gettime(CLOCK_MONOTONIC, &ramp[i].last_step_time);
                 }
-                clock_gettime(CLOCK_MONOTONIC, &ramp[i].last_step_time);
             }
 
-            if (ramp[i].active) all_done = 0;
-
-            // 모터 쪽 명령 타임아웃보다 짧은 주기로 재송신 (AGENTS.md §5 규칙4)
+            // 목표 도달 후에도 계속 재송신 -- 재송신을 멈추면 모터 쪽 명령 타임아웃으로
+            // 홀딩 토크가 풀릴 수 있으므로(AGENTS.md §5 규칙4), Ctrl+C 전까지 계속 보낸다.
             ak45_set_position(id, ramp[i].current_deg);
         }
 
@@ -158,15 +160,10 @@ int main(int argc, char *argv[])
         printf("\r%-100s", line);
         fflush(stdout);
 
-        if (all_done) {
-            printf("\n[demo] 모든 모터가 목표 위치에 도달했습니다. 종료합니다.\n");
-            break;
-        }
-
         usleep(SEND_INTERVAL_MS * 1000); // 100ms tick (블로킹 램프 대기가 아닌 CAN 재송신 주기)
     }
 
-    printf("[demo] 종료 중...\n");
+    printf("\n[demo] Ctrl+C 감지, 종료 중...\n");
     ak45_close();
     return 0;
 }
