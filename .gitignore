@@ -1,0 +1,16 @@
+# 빌드 산출물 — 추적하지 않는다.
+# Git에 커밋된 바이너리는 glibc 2.38 환경에서 링크된 것이라 다른 PC(2.35)에서
+# "version `GLIBC_2.38' not found" 로 실행되지 않았다. 어차피 각자 make 해야 한다.
+*.o
+/ak45_ctrl
+/ak45_ctrl_demo
+/ak45_demo
+
+# ROS2 워크스페이스 산출물 (패키지 안에는 생기지 않지만 방어용)
+build/
+install/
+log/
+
+# OMC 도구 실행 상태 (specs/ 는 분석 문서라 추적한다)
+.omc/state/
+.omc/sessions/

@@ -124,9 +124,12 @@ Phase 2(`/ak45/command` 명령 수신)를 구현하고 P1~P10을 실기 검증�
       끝나면 `max_command_deg`를 15.0에서 올릴 수 있다
 - [ ] **온도 원인 규명** — 전류 0A에서 26→53℃까지 오른 원인이 미상이다. 이동할 때마다 1℃씩 더 오른다
       (P2 후 53℃, P3 후 54℃). `max_temperature_c` 60.0까지 여유가 6℃뿐이라 검증 전 온도를 먼저 본다
-- [ ] **`.gitignore` 신규 작성** — 빌드 산출물(`*.o`, `ak45_ctrl`, `ak45_ctrl_demo`, `ak45_demo`)이
-      추적되고 있어 `make`만 돌려도 working tree가 더러워진다. 추적 해제(`git rm --cached`)를 함께 할 것
-- [ ] **`ak45_demo` 처리 결정** — 현재 Makefile이 만들지 않는 구 바이너리이고 `make clean` 대상도 아니다. 삭제 여부 확인 필요
+- [x] ~~**`.gitignore` 신규 작성**~~ → **완료(2026-08-27).** 빌드 산출물 `*.o`·`ak45_ctrl`·`ak45_ctrl_demo`·
+      `ak45_demo` 를 `git rm --cached` 로 추적 해제하고 `.gitignore` 에 등록. 로컬 파일은 남아 있다.
+      **이제 `make` 를 돌려도 working tree 가 더러워지지 않는다.** `build/`·`install/`·`log/` 와
+      `.omc/state/`·`.omc/sessions/` 도 함께 무시한다(`.omc/specs/` 는 분석 문서라 추적 유지)
+- [ ] **`ak45_demo` 처리 결정** — Makefile이 만들지 않는 구 바이너리다. **Git 추적은 해제됐고**
+      로컬 파일만 남아 있다. 로컬에서도 지울지 확인 필요
 - [ ] 저장소 **LICENSE 결정** — LICENSE 파일이 없고 README·`AGENTS.md`에도 표기가 없다.
       팀이 정해야 `package.xml`의 `<license>TODO</license>`를 채울 수 있다
 
