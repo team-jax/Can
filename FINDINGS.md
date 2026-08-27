@@ -173,7 +173,10 @@ S2 안전장치는 한 번 걸리면 **온도가 내려가도 자동 복귀하�
 | `version 'GLIBC_2.38' not found` | 커밋된 바이너리다. `make clean && make` |
 | `ioctl SIOCGIFINDEX: No such device` | `can0`이 없다. 1단계 |
 | `ak45_init() 실패` | ① `ip link show can0`이 UP인가 ② `fuser /tmp/ak45_ctrl.lock`로 다른 프로세스 확인. **락 파일을 지울 필요는 없다** — 프로세스 종료 시 OS가 자동 해제 |
-| 노드가 즉시 FATAL 3줄 + 종료 코드 1 | `ak45_ctrl`이 떠 있다. flock 충돌 |
+| 노드가 즉시 FATAL 3줄 + 종료 코드 1 | `ak45_ctrl`이 떠 있다. flock 충돌 → **아래 「Ctrl+Z 함정」을 먼저 본다** |
+| **`목표각 N도가 상한 15.0도를 넘습니다`** (WARN) | **고장이 아니다. 안전장치 S1이다.** 라디안 환산은 맞았고(로그의 `N도`가 그 증거) 그 다음에 상한이 막았다. **기본 설정에서는 ±15° 이하만 먹는다.** 클램프가 아니라 거부라서 모터는 15°로도 안 가고 아예 안 움직인다. 올리려면 `config/ak45_node.yaml`의 `max_command_deg` — 단 기준축 판별(V3)을 먼저 |
+| 명령을 보냈는데 `00000402` 프레임이 0건 | ① 위 S1로 거부됐는가(WARN 로그 확인) ② `/diagnostics`의 `command_active`가 `0`이면 S2(온도)·S3(피드백 없음)·S4(에러코드) 중 하나 ③ 이름이 `joint_names`와 일치하는가 |
+| `ID 0x02 온도 N도. 명령 송신을 중단합니다` (ERROR) | S2 래치. **온도가 내려가도 자동 복귀하지 않는다. 노드를 재시작해야 한다.** 무부하에서도 온도가 오르는 이력이 있으니 아래 「온도 상승」 참조 |
 | `/joint_states`가 계속 빈 배열 | `candump can0`에 `0x000029xx`가 오는가 → 없으면 CubeMarsTool Rate(Hz) 문제 |
 | `/diagnostics`가 전부 `level: 1` | 위와 같은 원인 |
 | stderr에 에러 문구가 도배됨 | 라이브러리가 직접 찍는 것이다(에러 프레임마다 1줄, 50Hz면 초당 50줄). 노드 버그가 아니다. 모터 에러코드를 먼저 해결 |
@@ -182,6 +185,48 @@ S2 안전장치는 한 번 걸리면 **온도가 내려가도 자동 복귀하�
 | 모터가 명령한 각도의 36배/36분의 1로 움직임 | 기준축 미판별(V3). 소각도로만 시험할 것 |
 | `ros2 topic list`에 아무것도 없음 | `source ~/ros2_ws/install/setup.bash`를 안 했다 |
 | MoveIt2가 `/joint_states`를 못 받음 | QoS를 BEST_EFFORT/SensorDataQoS로 바꾸지 않았는지 확인. RELIABLE 고정이어야 한다 |
+
+### ⚠️ Ctrl+Z 함정 — `ak45_init() 실패`의 가장 흔한 원인 (2026-08-27 실제 발생)
+
+노드를 끝냈다고 생각했는데 다시 띄우면 계속 이 메시지가 나온다:
+
+```
+[ak45] 이미 다른 ak45_ctrl 프로세스가 실행 중입니다.
+[FATAL] ak45_init() 실패. 다음을 확인하세요:
+```
+
+**원인: Ctrl+C 가 아니라 Ctrl+Z 를 눌렀다.**
+
+| 키 | 신호 | 결과 |
+|---|---|---|
+| **Ctrl+C** | SIGINT | 소멸자 실행 → 브레이크 0A 6개 → **락 해제** ✅ |
+| **Ctrl+Z** | SIGTSTP | 프로세스가 **멈추기만 한다. 락을 계속 쥔다** ❌ |
+
+Ctrl+Z를 누르면 터미널 프롬프트가 돌아와서 **종료된 것처럼 보이지만 프로세스는 살아 있다.**
+실제로 이 때문에 4번 연속 실행 실패한 사례가 있다.
+
+확인:
+
+```bash
+fuser -v /tmp/ak45_ctrl.lock     # 누가 잡고 있는지
+ps -eo pid,stat,cmd | grep ak45  # STAT 이 T 면 정지(suspended) 상태다
+```
+
+`STAT`의 **`T` = suspended**. 해결:
+
+```bash
+jobs        # 확인
+fg          # 되살린 뒤
+# Ctrl+C
+```
+
+또는 PID로 직접:
+
+```bash
+kill -CONT <PID> && kill -INT <PID>
+```
+
+**`kill -9` 는 쓰지 말 것.** 브레이크 프레임이 안 나간다(락 자체는 OS가 회수하므로 재실행은 된다).
 
 ---
 
