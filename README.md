@@ -15,7 +15,8 @@ CubeMars **AK45-36 KV80** 액추에이터 **6대(CAN ID 0x01~0x06)** 를 Linux +
 | **Phase 2** | ROS2 명령 인터페이스 (`/ak45/command` → 모터 이동) | **완료 (2026-08-27, P1~P10 실기 검증 통과)** |
 | Phase 3 | URDF + `robot_state_publisher` + MoveIt2 | 미착수 |
 
-세부 진행 상황·미결 항목은 [`STATUS.md`](STATUS.md)를, 실행 방법은 [`RUN.md`](RUN.md)를 본다.
+세부 진행 상황·미결 항목은 [`STATUS.md`](STATUS.md)를, **실행 방법은 [`RUN.md`](RUN.md)** 를,
+실측 기록·트러블슈팅은 [`FINDINGS.md`](FINDINGS.md)를 본다.
 ROS2 노드 사양은 [`ros2.md`](ros2.md) (Phase 2는 §13), 패키지는 [`ak45_ros2/`](ak45_ros2/)에 있다.
 
 ## ROS2로 모터 움직이기 (Phase 2)
