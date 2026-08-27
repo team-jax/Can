@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""ak45_deg — 각도(도)로 /ak45/command 를 발행한다.
+
+/ak45/command 는 sensor_msgs/msg/JointState 이고 position 단위는 rad 다
+(REP-103 표준). 사람이 매번 손으로 환산하기 번거로우므로 이 스크립트가
+도 -> rad 변환만 대신해 주고 발행은 그대로 표준 토픽으로 나간다.
+
+사용법
+    ak45_deg 10                     ak45_2 를 10도로 (관절 생략 시 기본값)
+    ak45_deg ak45_2 10              관절을 명시
+    ak45_deg ak45_2 10 ak45_3 -5    여러 관절 동시
+    ak45_deg --list                 현재 상태를 도 단위로 출력
+    ak45_deg --hold                 마지막 목표를 유지한 채 아무것도 안 보냄(확인용)
+
+주의
+    노드의 max_command_deg(기본 15.0)를 넘는 값은 노드가 거부한다.
+    이 스크립트는 막지 않는다 — 노드 쪽 WARN 로그를 보라.
+"""
+
+import math
+import subprocess
+import sys
+
+DEFAULT_JOINT = "ak45_2"
+VALID_JOINTS = ["ak45_1", "ak45_2", "ak45_3", "ak45_4", "ak45_5", "ak45_6"]
+TOPIC = "/ak45/command"
+
+
+def die(msg):
+    print(f"오류: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def parse_deg(text):
+    try:
+        return float(text)
+    except ValueError:
+        die(f"각도가 숫자가 아닙니다: {text!r}")
+
+
+def parse_args(argv):
+    """[(joint, deg), ...] 를 돌려준다."""
+    if not argv:
+        die("각도를 지정하세요. 예: ak45_deg 10")
+
+    # 값 하나만 주면 기본 관절
+    if len(argv) == 1:
+        return [(DEFAULT_JOINT, parse_deg(argv[0]))]
+
+    pairs = []
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token in VALID_JOINTS:
+            if i + 1 >= len(argv):
+                die(f"{token} 뒤에 각도가 없습니다")
+            pairs.append((token, parse_deg(argv[i + 1])))
+            i += 2
+        else:
+            die(
+                f"알 수 없는 관절 이름: {token!r}\n"
+                f"       쓸 수 있는 이름: {', '.join(VALID_JOINTS)}\n"
+                f"       각도만 주려면 값 하나만: ak45_deg 10"
+            )
+    return pairs
+
+
+def show_state():
+    """현재 /joint_states 를 도 단위로 보여준다."""
+    try:
+        out = subprocess.run(
+            ["ros2", "topic", "echo", "--once", "/joint_states"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+    except subprocess.TimeoutExpired:
+        die(
+            "/joint_states 를 받지 못했습니다.\n"
+            "       노드가 떠 있는지 확인하세요:\n"
+            "         ros2 launch ak45_ros2 ak45_node.launch.py"
+        )
+
+    names, positions = [], []
+    section = None
+    for line in out.splitlines():
+        stripped = line.strip()
+        if stripped in ("name:", "position:"):
+            section = stripped[:-1]
+            continue
+        if stripped.startswith("- ") and section:
+            value = stripped[2:].strip()
+            (names if section == "name" else positions).append(value)
+        elif stripped and not stripped.startswith("- "):
+            if not stripped.endswith(":"):
+                section = None
+
+    if not names:
+        print("피드백이 오는 모터가 없습니다. (노드가 떠 있는지, can0 를 확인)")
+        return
+
+    print(f"{'관절':<10} {'현재각(도)':>12} {'rad':>12}")
+    print("-" * 36)
+    for name, rad_text in zip(names, positions):
+        rad = float(rad_text)
+        print(f"{name:<10} {math.degrees(rad):>12.2f} {rad:>12.5f}")
+
+
+def main():
+    argv = sys.argv[1:]
+
+    if argv and argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return
+    if argv and argv[0] == "--list":
+        show_state()
+        return
+
+    pairs = parse_args(argv)
+
+    names = [joint for joint, _ in pairs]
+    degs = [deg for _, deg in pairs]
+    rads = [math.radians(deg) for deg in degs]
+
+    for joint, deg, rad in zip(names, degs, rads):
+        print(f"{joint}: {deg:.2f}도 -> {rad:.5f} rad")
+
+    name_field = "[" + ", ".join(f"'{n}'" for n in names) + "]"
+    pos_field = "[" + ", ".join(f"{r:.6f}" for r in rads) + "]"
+    payload = f"{{name: {name_field}, position: {pos_field}}}"
+
+    try:
+        result = subprocess.run(
+            ["ros2", "topic", "pub", "-1", TOPIC,
+             "sensor_msgs/msg/JointState", payload],
+            capture_output=True, text=True, timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        die(
+            "발행이 끝나지 않습니다. 노드가 떠 있는지 확인하세요:\n"
+            "         ros2 launch ak45_ros2 ak45_node.launch.py"
+        )
+    if result.returncode != 0:
+        die(
+            "발행 실패.\n"
+            "       ros2 환경을 source 했는지, 노드가 떠 있는지 확인하세요.\n"
+            f"{result.stderr.strip()}"
+        )
+
+    print(f"발행함 -> {TOPIC}")
+    print("노드가 100ms 주기로 재송신합니다. 반복 발행할 필요 없습니다.")
+    print("거부됐는지는 노드 터미널의 WARN 로그를 보세요 (상한 초과 등).")
+
+
+if __name__ == "__main__":
+    main()

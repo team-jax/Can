@@ -26,15 +26,16 @@ ROS2 노드 사양은 [`ros2.md`](ros2.md) (Phase 2는 §13), 패키지는 [`ak4
 source /opt/ros/humble/setup.bash && source ~/ros2_ws/install/setup.bash
 ros2 launch ak45_ros2 ak45_node.launch.py
 
-# [터미널 2]  ak45_2 를 10도로 (0.1745 rad)
+# [터미널 2]  ak45_2 를 10도로
 source /opt/ros/humble/setup.bash && source ~/ros2_ws/install/setup.bash
-ros2 topic pub -1 /ak45/command sensor_msgs/msg/JointState \
-  "{name: ['ak45_2'], position: [0.1745]}"
+ros2 run ak45_ros2 ak45_deg 10
 ```
 
-재송신은 **노드가** 100ms 주기로 대신 한다. 발행자는 한 번만 쏘면 된다.
-도→rad: 10°=`0.1745` · 15°=`0.2618` · 30°=`0.5236` · 90°=`1.5708`.
-**기본 상한은 ±15°이고 넘으면 클램프가 아니라 거부된다.**
+`ak45_deg` 는 **도 단위로 받아 rad 로 환산해 발행하는 헬퍼**다. 토픽 자체는 ROS 표준대로
+rad(`sensor_msgs/msg/JointState`)이므로, 정책 노드가 붙을 때는 표준 토픽을 그대로 쓰면 된다.
+
+재송신은 **노드가** 100ms 주기로 대신 한다. 한 번만 보내면 된다.
+**기본 상한은 ±15°이고 넘으면 클램프가 아니라 거부된다** (기준축 판별 전 안전장치).
 
 ## 하드웨어
 

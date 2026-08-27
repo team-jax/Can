@@ -32,7 +32,7 @@ CubeMars AK45-36 KV80 액추에이터 **6대(CAN ID 0x01~0x06)** 를 Linux + CAN
 
 | Directory | Purpose |
 |-----------|---------|
-| `ak45_ros2/` | **ROS2 Humble 패키지(Phase 1+2).** 노드 하나 `ak45_node` — 상태 발행 + 명령 수신. `~/ros2_ws/src/ak45_ros2`가 여기를 가리키는 **심볼릭 링크**다. 자체 AGENTS.md 6개를 가진다 (`ak45_ros2/AGENTS.md` 참조) |
+| `ak45_ros2/` | **ROS2 Humble 패키지(Phase 1+2).** 노드 하나 `ak45_node` — 상태 발행 + 명령 수신. `scripts/ak45_deg` 는 도 단위 입력 헬퍼(토픽은 rad 유지). `~/ros2_ws/src/ak45_ros2`가 여기를 가리키는 **심볼릭 링크**다. 자체 AGENTS.md 6개를 가진다 (`ak45_ros2/AGENTS.md` 참조) |
 | `.claude/` | Claude Code 프로젝트 설정(`settings.local.json` — Bash 권한 허용 목록). 소스가 아니므로 AGENTS.md를 두지 않는다 |
 | `.omc/` | oh-my-claudecode 세션·상태 캐시(`project-memory.json`, `sessions/`, `state/`, `specs/`). 도구 생성물이며 **11개 파일이 Git에 커밋되어 있다**(`specs/`와 `state/deep-dive-state.json`은 미추적). AGENTS.md 생성 대상이 아니다 |
 

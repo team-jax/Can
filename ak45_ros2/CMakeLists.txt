@@ -42,4 +42,9 @@ install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
 
+# 각도(도) 입력용 헬퍼. ros2 run ak45_ros2 ak45_deg 10
+install(PROGRAMS scripts/ak45_deg
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()
