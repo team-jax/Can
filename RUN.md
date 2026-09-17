@@ -60,8 +60,19 @@ colcon build --packages-select ak45_ros2
 
 ```bash
 lsusb                                              # CANable 인식 확인 (보통 1d50:606f)
-sudo ip link set can0 up type can bitrate 1000000  # 1Mbps 고정
+sudo ip link set can0 up type can bitrate 1000000 restart-ms 100   # 1Mbps 고정
 ip -details link show can0                         # state UP, bitrate 1000000 확인
+```
+
+`restart-ms 100` 을 **빼지 말 것.** 기본값 0 은 bus-off 가 나면 자동 복구를 안 한다 —
+인터페이스가 죽은 채로 남고 `ip link down/up` 을 사람이 직접 해야 한다.
+이 버스는 이미 상시 `ERROR-WARNING` 이라(→ `STATUS.md` P16) bus-off 가 현실적인 위험이다.
+
+`can state` 가 `ERROR-WARNING`/`ERROR-PASSIVE` 로 보이면 **배선 문제다.** 확인:
+
+```bash
+candump -e can0,0~0,#FFFFFFFF        # 에러 프레임만. bit-stuffing 이 보이면 물리층 불량
+ip -details -statistics link show can0   # error-warn / error-pass / bus-off 카운터
 ```
 
 인터페이스가 `can1`으로 올라오면 **그대로는 못 쓴다.** 라이브러리가 `CAN_INTERFACE "can0"`
@@ -125,10 +136,11 @@ ros2 launch ak45_ros2 ak45_node.launch.py
 source /opt/ros/humble/setup.bash
 source ~/ros2_ws/install/setup.bash
 
-ros2 topic list                            # /joint_states /diagnostics /parameter_events /rosout
+ros2 topic list                            # /ak45/command /joint_states /diagnostics
+                                           # /parameter_events /rosout
 ros2 topic echo /joint_states              # position은 rad 단위
 ros2 topic hz /joint_states                # 약 50Hz
-ros2 topic echo /diagnostics               # status 정확히 6개
+ros2 topic echo /diagnostics               # status 7개 (모터 6 + can_bus 1)
 ros2 topic hz /diagnostics                 # 약 2Hz
 ros2 topic info /joint_states --verbose    # RELIABLE / VOLATILE / KEEP_LAST(10)
 ros2 param get /ak45_node joint_names
@@ -284,7 +296,7 @@ colcon build --packages-select ak45_ros2   # config 를 install 로 복사
 
 ```bash
 ros2 topic echo /joint_states       # position 은 rad
-ros2 topic echo /diagnostics        # KeyValue 9개 (Phase 2에서 3개 추가)
+ros2 topic echo /diagnostics        # status 7개. 모터는 KeyValue 9개
 ```
 
 진단에서 Phase 2로 볼 것:
@@ -295,17 +307,32 @@ ros2 topic echo /diagnostics        # KeyValue 9개 (Phase 2에서 3개 추가)
 | `command_active` | 재송신 중이면 `1`, S1~S4로 제외됐으면 `0` |
 | `position_error_deg` | `target_deg - position_deg` |
 
+`ak45/can_bus` 항목 (2026-09-03 추가) — CAN 물리층. 재송신이 가려주는 문제를 드러낸다:
+
+| key | 의미 |
+|---|---|
+| `state` | `정상` / `경고(error-warning)` / `수동(error-passive)` / `버스오프(bus-off)` |
+| `bit_stuff_errors` | **배선·종단저항 품질 지표.** 계속 오르면 물리층 불량 |
+| `form_errors` | 프레임 포맷 위반. 위와 같은 원인 |
+| `ack_errors` | **0이어야 정상.** 0이 아니면 그 ID를 받는 노드가 버스에 없다 |
+| `busoff_count` | bus-off 진입 횟수. 0이 아니면 `restart-ms` 를 확인 |
+| `restart_count` | 자동 복구 횟수 |
+
+⚠️ 이 값이 오르는 것 자체는 **코드로 못 고친다.** 종단저항 120Ω·배선 문제다.
+
 ### 안전장치 — 걸리면 정상이다
 
 | # | 조건 | 증상 |
 |---|---|---|
-| **S1** | 목표각 > **±15°** (`max_command_deg`) | 모터가 안 움직이고 WARN 1줄. **클램프가 아니라 거부** |
+| **S1** | 목표각 > **±360°** (`max_command_deg`) | 모터가 안 움직이고 WARN 1줄. **클램프가 아니라 거부** |
 | **S2** | 온도 >= **60°C** | 그 모터 명령 중단. **온도가 내려가도 자동 복귀 안 함 — 노드 재시작 필요** |
-| **S3** | 피드백 없는 모터 | 명령 프레임이 안 나간다. 지금 ID 0x02 외 5대가 여기 해당 |
+| **S3** | 피드백 없는 모터 | 명령 프레임이 안 나간다. 지금 ID 0x02 외 5대가 여기 해당. **2026-09-03부터 WARN 을 찍는다** (전에는 무로그였다) |
 | **S4** | 모터 `error_code != 0` | 라이브러리가 프레임을 막고 노드가 ERROR 로그 |
 
-⚠️ **`max_command_deg` 15°는 V3 기준축 판별 전의 보수적 값이다.** 판별이 끝나기 전에는 올리지 말 것.
-올리려면 `config/ak45_node.yaml`을 고치고 노드를 재시작한다.
+**`max_command_deg` 는 현재 360.0** 이다. 2026-08-27 기준축 판별(출력축 기준, `ros2.md` §13.10)과
+90° 실기 검증이 끝나 라이브러리 상한(`SOFT_LIMIT_POS_DEG 360.0f`)까지 열어 뒀다.
+⚠️ **출력축에 링크·기구부가 붙으면 물리적 허용 각도까지 다시 낮춰라.**
+바꾸려면 `config/ak45_node.yaml` 을 고치고 노드를 재시작한다.
 
 ### 종료
 
@@ -403,6 +430,21 @@ ID2~6은 대기 없이 즉시 0도 가정으로 넘어간다.
 ---
 
 ## 안 될 때
+
+### 「명령을 보냈는데 모터가 안 움직인다」
+
+이 순서로 본다. **1번을 건너뛰면 안 된다** — 가장 흔한 오진이다.
+
+1. **이미 그 각도에 있는 것 아닌가.** `ak45_deg --list` 로 현재각을 먼저 본다.
+   같은 값을 다시 보내면 당연히 아무 일도 안 일어난다.
+2. **노드 터미널에 `목표각 수신` INFO 가 찍혔나.**
+   - 찍혔다 → 명령은 도달했다. 3번으로.
+   - 안 찍혔다 → **도달하지 않았다.** 노드가 떠 있는지, `ros2 topic info -v /ak45/command` 의
+     `Subscription count` 가 1인지 확인. (2026-09-03 이전 `ak45_deg` 는 `pub -1` 을 써서
+     드물게 조용히 유실됐다 → `STATUS.md` P17)
+3. **WARN/ERROR 가 찍혔나.** S1(상한 초과) / S2(온도) / S3(피드백 없음) / S4(모터 에러) 중 하나다.
+4. **프레임이 실제로 나가나.** `candump can0 | grep 00000402` — 100ms 간격으로 나와야 한다.
+5. **버스가 살아 있나.** `ros2 topic echo /diagnostics` 의 `ak45/can_bus` 를 본다.
 
 증상별 확인 순서, 실측 기록, 발견 사항(종료 시 브레이크 프레임 누락 / 온도 상승 / 모터 1대)은
 **[`FINDINGS.md`](FINDINGS.md)** 에 있다.

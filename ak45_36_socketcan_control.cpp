@@ -17,6 +17,7 @@
 #include <net/if.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
+#include <linux/can/error.h>
 
 #define LOCK_FILE_PATH "/tmp/ak45_ctrl.lock"
 
@@ -27,6 +28,8 @@ static volatile int     g_running = 0;
 static MotorState       g_state[NUM_MOTORS];
 static pthread_mutex_t  g_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t        g_rx_thread;
+static BusStatus        g_bus;
+static pthread_mutex_t  g_bus_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // 등록된 컨트롤러 ID 목록 (g_state 배열 인덱스 순서와 일치)
 static const uint8_t g_controller_ids[NUM_MOTORS] = {
@@ -127,6 +130,43 @@ static void parse_feedback(uint8_t controller_id, const uint8_t *data, uint8_t d
     }
 }
 
+// ─── 에러 프레임 처리 (linux/can/error.h) ────────────────────────────────────
+// 에러 프레임은 데이터 프레임이 아니다. can_id 에 CAN_ERR_FLAG 가 서고 payload
+// 8바이트에 원인이 담긴다. 여기서 세는 값은 '재송신이 가려주고 있는 물리층
+// 문제'의 유일한 관측 창구다.
+static void handle_error_frame(const struct can_frame *f)
+{
+    pthread_mutex_lock(&g_bus_mutex);
+    g_bus.err_frames++;
+
+    // 상태 전이는 우선순위대로 하나만 반영한다. bus-off 가 가장 강하다.
+    if (f->can_id & CAN_ERR_BUSOFF) {
+        g_bus.state = BUS_OFF;
+        g_bus.busoff_count++;
+    } else if (f->can_id & CAN_ERR_RESTARTED) {
+        g_bus.state = BUS_ERROR_ACTIVE;
+        g_bus.restart_count++;
+    } else if (f->can_id & CAN_ERR_CRTL) {
+        const uint8_t c = f->data[1];
+        if (c & (CAN_ERR_CRTL_RX_PASSIVE | CAN_ERR_CRTL_TX_PASSIVE)) {
+            g_bus.state = BUS_ERROR_PASSIVE;
+        } else if (c & (CAN_ERR_CRTL_RX_WARNING | CAN_ERR_CRTL_TX_WARNING)) {
+            g_bus.state = BUS_ERROR_WARNING;
+        } else if (c & CAN_ERR_CRTL_ACTIVE) {
+            g_bus.state = BUS_ERROR_ACTIVE;
+        }
+    }
+
+    // 원인 카운터는 상태와 독립적으로 누적한다 (한 프레임에 둘 다 실릴 수 있다).
+    if (f->can_id & CAN_ERR_PROT) {
+        if (f->data[2] & CAN_ERR_PROT_STUFF) {g_bus.bit_stuff_errors++;}
+        if (f->data[2] & CAN_ERR_PROT_FORM)  {g_bus.form_errors++;}
+    }
+    if (f->can_id & CAN_ERR_ACK) {g_bus.ack_errors++;}
+
+    pthread_mutex_unlock(&g_bus_mutex);
+}
+
 // ─── 수신 스레드 ──────────────────────────────────────────────────────────────
 static void *rx_thread(void *arg)
 {
@@ -141,6 +181,13 @@ static void *rx_thread(void *arg)
             break;
         }
         if ((size_t)nbytes < sizeof(frame)) continue;
+
+        // 에러 프레임을 먼저 걸러낸다. CAN_ERR_FLAG 프레임에는 CAN_EFF_FLAG 가
+        // 서지 않으므로 아래 EFF 검사보다 앞에 있어야 조용히 버려지지 않는다.
+        if (frame.can_id & CAN_ERR_FLAG) {
+            handle_error_frame(&frame);
+            continue;
+        }
 
         // Extended 프레임만 처리
         if (!(frame.can_id & CAN_EFF_FLAG)) continue;
@@ -167,6 +214,26 @@ int ak45_is_watchdog_ok(uint8_t controller_id)
     pthread_mutex_unlock(&g_state_mutex);
 
     return valid && (elapsed < WATCHDOG_TIMEOUT_MS);
+}
+
+// ─── CAN 버스 상태 ───────────────────────────────────────────────────────────
+BusStatus ak45_get_bus_status(void)
+{
+    pthread_mutex_lock(&g_bus_mutex);
+    BusStatus b = g_bus;
+    pthread_mutex_unlock(&g_bus_mutex);
+    return b;
+}
+
+const char *ak45_bus_state_str(int state)
+{
+    switch (state) {
+        case BUS_ERROR_ACTIVE:  return "정상(error-active)";
+        case BUS_ERROR_WARNING: return "경고(error-warning)";
+        case BUS_ERROR_PASSIVE: return "수동(error-passive)";
+        case BUS_OFF:           return "버스오프(bus-off)";
+        default:                return "알 수 없음";
+    }
 }
 
 // ─── 초기화 ───────────────────────────────────────────────────────────────────
@@ -202,6 +269,18 @@ int ak45_init(void)
         return -1;
     }
 
+    // 에러 프레임 수신 활성화. CAN_RAW_ERR_FILTER 기본값이 0 이라 이걸 켜지
+    // 않으면 bus-off 조차 소켓에 배달되지 않는다. 실패해도 치명적이지 않다
+    // — 버스 감시만 못 하게 되고 제어 경로는 그대로 동작한다.
+    can_err_mask_t err_mask =
+        CAN_ERR_TX_TIMEOUT | CAN_ERR_LOSTARB | CAN_ERR_CRTL | CAN_ERR_PROT |
+        CAN_ERR_TRX | CAN_ERR_ACK | CAN_ERR_BUSOFF | CAN_ERR_BUSERROR |
+        CAN_ERR_RESTARTED;
+    if (setsockopt(can_sock, SOL_CAN_RAW, CAN_RAW_ERR_FILTER,
+                   &err_mask, sizeof(err_mask)) < 0) {
+        perror("[ak45] setsockopt CAN_RAW_ERR_FILTER (버스 감시 비활성화됨)");
+    }
+
     struct sockaddr_can addr;
     memset(&addr, 0, sizeof(addr));
     addr.can_family  = AF_CAN;
@@ -215,6 +294,7 @@ int ak45_init(void)
     }
 
     memset(g_state, 0, sizeof(g_state));
+    memset(&g_bus, 0, sizeof(g_bus));
     g_running = 1;
 
     if (pthread_create(&g_rx_thread, NULL, rx_thread, NULL) != 0) {

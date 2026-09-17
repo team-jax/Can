@@ -65,6 +65,28 @@ typedef struct {
     int      valid;            // 피드백 수신 여부
 } MotorState;
 
+// ─── CAN 버스 상태 (에러 프레임 기반) ────────────────────────────────────────
+// 2026-09-03: can0 가 상시 ERROR-WARNING 이고 bit-stuffing 에러가 초당 약 20회
+// 발생하는데도 노드가 이를 전혀 볼 수 없었다. SocketCAN 의 CAN_RAW_ERR_FILTER
+// 기본값이 0 이라 에러 프레임이 소켓에 아예 배달되지 않기 때문이다.
+// 재송신이 문제를 가려주고 있어서, 최소한 '보이게' 만든다.
+typedef enum {
+    BUS_ERROR_ACTIVE  = 0,   // 정상
+    BUS_ERROR_WARNING = 1,   // 에러 카운터 >= 96
+    BUS_ERROR_PASSIVE = 2,   // 에러 카운터 >= 128. 송신 시 8비트 추가 대기
+    BUS_OFF           = 3,   // TEC > 255. restart-ms 가 0 이면 수동 복구만 가능
+} BusState;
+
+typedef struct {
+    int      state;              // BusState
+    uint32_t err_frames;         // 누적 에러 프레임 수
+    uint32_t bit_stuff_errors;   // 물리층 신호 품질 지표 (배선/종단)
+    uint32_t form_errors;        // 프레임 포맷 위반
+    uint32_t ack_errors;         // ACK 없음 = 그 ID 를 받는 노드가 버스에 없음
+    uint32_t busoff_count;       // bus-off 진입 횟수
+    uint32_t restart_count;      // 자동 복구(restart-ms) 횟수
+} BusStatus;
+
 // ─── 공개 API ────────────────────────────────────────────────────────────────
 int  ak45_init(void);          // SocketCAN 소켓 열기 + 피드백 스레드 시작
 void ak45_close(void);         // 안전 정지 후 소켓 닫기
@@ -86,3 +108,5 @@ int  ak45_emergency_stop_one(uint8_t controller_id);   // 지정 모터만 정�
 MotorState ak45_get_state(uint8_t controller_id);
 int        ak45_is_watchdog_ok(uint8_t controller_id);   // 0=타임아웃, 1=정상
 const char *ak45_error_str(uint8_t code);
+BusStatus  ak45_get_bus_status(void);                    // CAN 물리층 상태
+const char *ak45_bus_state_str(int state);

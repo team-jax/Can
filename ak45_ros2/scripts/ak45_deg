@@ -127,11 +127,18 @@ def main():
     pos_field = "[" + ", ".join(f"{r:.6f}" for r in rads) + "]"
     payload = f"{{name: {name_field}, position: {pos_field}}}"
 
+    # -1(--once) 을 쓰지 않는다. ros2 topic pub 의 --keep-alive 기본값이 0.1초라
+    # (ros2topic/verb/pub.py:189, :318) 방금 만든 RELIABLE 퍼블리셔가 RTPS
+    # 핸드셰이크를 끝내기 전에 노드가 파괴되어 메시지가 조용히 유실된다.
+    # get_subscription_count() 는 discovery 매칭만 뜻하고 전달 보장이 아니다.
+    # 실측 70회 중 1회 유실(로그 흔적 0). 3회 발행 + 1초 생존으로 여유를 준다.
+    # 노드는 같은 목표값을 래치만 하므로 중복 발행은 무해하다(멱등).
     try:
         result = subprocess.run(
-            ["ros2", "topic", "pub", "-1", TOPIC,
+            ["ros2", "topic", "pub", "-t", "3", "-r", "10",
+             "--keep-alive", "1.0", TOPIC,
              "sensor_msgs/msg/JointState", payload],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=25,
         )
     except subprocess.TimeoutExpired:
         die(
@@ -145,9 +152,10 @@ def main():
             f"{result.stderr.strip()}"
         )
 
-    print(f"발행함 -> {TOPIC}")
+    print(f"발행함 -> {TOPIC} (3회 발행, 유실 방지)")
     print("노드가 100ms 주기로 재송신합니다. 반복 발행할 필요 없습니다.")
-    print("거부됐는지는 노드 터미널의 WARN 로그를 보세요 (상한 초과 등).")
+    print("노드 터미널에 '목표각 수신' INFO 가 찍히면 도달한 것입니다.")
+    print("안 찍히면 도달하지 않았습니다 — 노드가 떠 있는지 확인하세요.")
 
 
 if __name__ == "__main__":

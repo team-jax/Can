@@ -45,6 +45,8 @@ private:
     std::size_t index, uint8_t motor_id,
     const MotorState & st, bool watchdog_ok) const;
 
+  diagnostic_msgs::msg::DiagnosticStatus makeBusStatus() const;
+
   static std::string fmt2(double v);   // 소수 2자리 (snprintf)
 
   static constexpr std::size_t kNumMotors = 6;
@@ -268,12 +270,29 @@ void Ak45Node::onCommand(const sensor_msgs::msg::JointState::SharedPtr msg)
 
     // S1: 클램프가 아니라 거부. 클램프하면 사람이 잘못 보낸 것을 모르는 채로
     //     모터가 상한까지 움직여버린다.
+    //     위치 피드백은 출력축 기준으로 확정됐으므로(§13.10) 여기 적히는 각도가
+    //     곧 실제 출력축 회전량이다.
     if (std::fabs(deg) > max_command_deg_) {
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 5000,
-        "목표각 %.1f도가 상한 %.1f도를 넘습니다. 무시합니다. (기준축 판별 전)",
+        "목표각 %.1f도가 상한 %.1f도를 넘습니다. 무시합니다. "
+        "(상한은 config/ak45_node.yaml 의 max_command_deg)",
         deg, max_command_deg_);
       continue;   // target_deg_[i] 는 이전 값을 유지한다
+    }
+
+    // 첫 명령만 무조건 INFO. 이후는 1초 스로틀 — 나중에 강화학습 정책이
+    // 10Hz 로 밀어넣어도 로그가 터지지 않는다.
+    // 이 로그가 없으면 '명령이 도달했는가'와 '도달했지만 안 나갔는가'를
+    // 사람이 구분할 방법이 전혀 없다 (2026-09-03 진단).
+    if (!has_target_[i]) {
+      RCLCPP_INFO(
+        this->get_logger(), "목표각 수신(첫 명령): %s = %.2f도",
+        msg->name[k].c_str(), deg);
+    } else {
+      RCLCPP_INFO_THROTTLE(
+        this->get_logger(), *this->get_clock(), 1000,
+        "목표각 수신: %s = %.2f도", msg->name[k].c_str(), deg);
     }
 
     target_deg_[i] = deg;
@@ -314,6 +333,12 @@ void Ak45Node::onCommandTimer()
     //     100ms마다 프레임을 쏘게 된다.
     if (st.valid == 0 || !wd_ok) {
       command_active_[i] = false;
+      // has_target_ 게이트를 이미 지났으므로 '명령은 받았는데 안 보내는' 상황이다.
+      // 무로그로 두면 사람 눈에는 그냥 모터가 안 움직이는 것으로만 보인다.
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 5000,
+        "ID 0x%02X 피드백 %s. 명령을 받았지만 프레임을 보내지 않습니다.",
+        id, (st.valid == 0) ? "없음" : "끊김(200ms 초과)");
       continue;
     }
 
@@ -347,7 +372,7 @@ void Ak45Node::onDiagTimer()
 {
   diagnostic_msgs::msg::DiagnosticArray da;
   da.header.stamp = this->now();
-  da.status.reserve(kNumMotors);
+  da.status.reserve(kNumMotors + 1);   // 모터 6개 + can_bus 1개
 
   int valid_count = 0;
 
@@ -356,10 +381,29 @@ void Ak45Node::onDiagTimer()
     const MotorState st = ak45_get_state(id);
     const bool wd_ok = (ak45_is_watchdog_ok(id) != 0);
     if (st.valid != 0) {++valid_count;}
-    da.status.push_back(makeStatus(i, id, st, wd_ok));   // 항상 6개
+    da.status.push_back(makeStatus(i, id, st, wd_ok));   // 모터는 항상 6개
   }
 
+  // CAN 물리층. 재송신이 가려주고 있는 문제를 드러내기 위한 항목이다.
+  da.status.push_back(makeBusStatus());
+
   diag_pub_->publish(da);
+
+  const BusStatus bus = ak45_get_bus_status();
+  if (bus.state == BUS_OFF) {
+    RCLCPP_ERROR_THROTTLE(
+      this->get_logger(), *this->get_clock(), 5000,
+      "CAN 버스오프 (누적 %u회). restart-ms 가 0 이면 자동 복구되지 않습니다: "
+      "sudo ip link set can0 type can bitrate 1000000 restart-ms 100",
+      bus.busoff_count);
+  } else if (bus.state >= BUS_ERROR_WARNING) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 10000,
+      "CAN 버스 %s. 누적 에러프레임=%u (bit-stuffing=%u, form=%u, no-ack=%u). "
+      "재송신이 가려주고 있을 뿐 물리층(배선/종단저항 120Ω) 문제입니다.",
+      ak45_bus_state_str(bus.state), bus.err_frames,
+      bus.bit_stuff_errors, bus.form_errors, bus.ack_errors);
+  }
 
   if (valid_count == 0) {
     RCLCPP_WARN_THROTTLE(
@@ -435,6 +479,52 @@ diagnostic_msgs::msg::DiagnosticStatus Ak45Node::makeStatus(
   kv.value = has_target_[index]
     ? fmt2(target_deg_[index] - static_cast<double>(st.position_deg))
     : "none";
+  status.values.push_back(kv);
+
+  return status;
+}
+
+diagnostic_msgs::msg::DiagnosticStatus Ak45Node::makeBusStatus() const
+{
+  const BusStatus bus = ak45_get_bus_status();
+
+  diagnostic_msgs::msg::DiagnosticStatus status;
+  status.name = "ak45/can_bus";
+  status.hardware_id = "can0";
+
+  if (bus.state == BUS_OFF) {
+    status.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+    status.message = "버스오프. 복구: sudo ip link set can0 down && sudo ip link set can0 up";
+  } else if (bus.state == BUS_ERROR_PASSIVE) {
+    status.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+    status.message = "error-passive. 배선/종단저항(120Ω) 점검";
+  } else if (bus.state == BUS_ERROR_WARNING) {
+    status.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+    status.message = "error-warning. 배선/종단저항(120Ω) 점검";
+  } else if (bus.err_frames > 0) {
+    status.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+    status.message = "현재 정상이나 누적 에러 프레임이 있음";
+  } else {
+    status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+    status.message = "정상";
+  }
+
+  status.values.reserve(7);
+  diagnostic_msgs::msg::KeyValue kv;
+
+  kv.key = "state";             kv.value = ak45_bus_state_str(bus.state);
+  status.values.push_back(kv);
+  kv.key = "err_frames";        kv.value = std::to_string(bus.err_frames);
+  status.values.push_back(kv);
+  kv.key = "bit_stuff_errors";  kv.value = std::to_string(bus.bit_stuff_errors);
+  status.values.push_back(kv);
+  kv.key = "form_errors";       kv.value = std::to_string(bus.form_errors);
+  status.values.push_back(kv);
+  kv.key = "ack_errors";        kv.value = std::to_string(bus.ack_errors);
+  status.values.push_back(kv);
+  kv.key = "busoff_count";      kv.value = std::to_string(bus.busoff_count);
+  status.values.push_back(kv);
+  kv.key = "restart_count";     kv.value = std::to_string(bus.restart_count);
   status.values.push_back(kv);
 
   return status;
