@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AK45-36 CAN 대시보드</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --line:#e3e6ea; --text:#15181d; --dim:#6b7280;
+  --accent:#2563eb; --ok:#15803d; --warn:#b45309; --bad:#b91c1c;
+  --okbg:#e7f6ec; --warnbg:#fdf3e3; --badbg:#fdeaea; --mono:ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#13161b; --panel:#1b1f26; --line:#2b313a; --text:#e6e9ee; --dim:#9aa3b0;
+  --accent:#60a5fa; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+  --okbg:#14271b; --warnbg:#2a210f; --badbg:#2b1414;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.5 system-ui,-apple-system,"Noto Sans KR",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding-block:18px;padding-left:16px;padding-right:16px}
+h1{font-size:18px;margin:0}
+h2{font-size:14px;margin:0 0 10px;color:var(--dim);font-weight:600;
+  text-transform:uppercase;letter-spacing:.06em}
+.topbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+  justify-content:space-between;margin-bottom:14px}
+.meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:var(--dim);font-size:12px}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;
+  padding:3px 10px;font-family:var(--mono);white-space:nowrap}
+.chip b{color:var(--text)}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel);color:var(--text);padding:7px 12px}
+button:hover{border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.danger{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:600}
+.danger:hover{filter:brightness(1.1);border-color:var(--bad)}
+.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.primary:hover{filter:brightness(1.08)}
+section{margin-bottom:22px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card.dead{opacity:.62}
+.card header{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin-bottom:10px}
+.mid{font-size:16px;font-weight:700;font-family:var(--mono)}
+.mid small{font-weight:400;color:var(--dim);font-size:11px;margin-left:5px}
+.badge{font-size:11px;padding:2px 8px;border-radius:999px;white-space:nowrap;font-weight:600}
+.b-ok{background:var(--okbg);color:var(--ok)}
+.b-warn{background:var(--warnbg);color:var(--warn)}
+.b-bad{background:var(--badbg);color:var(--bad)}
+table.kv{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px}
+table.kv th{text-align:left;font-weight:400;color:var(--dim);padding:3px 0;width:68px;
+  font-family:system-ui,sans-serif;font-size:12px}
+table.kv td{text-align:right;padding:3px 0;font-variant-numeric:tabular-nums}
+table.kv td .raw{color:var(--dim);font-size:11px;margin-left:7px}
+.cmd{display:flex;gap:6px;margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
+.cmd input{flex:1;min-width:0;font:inherit;font-family:var(--mono);padding:7px 9px;
+  border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
+.tgt{margin-top:9px;font-size:12px;padding:6px 9px;border-radius:7px;
+  background:var(--okbg);color:var(--ok);display:flex;justify-content:space-between;
+  align-items:center;gap:8px;font-family:var(--mono)}
+.tgt button{padding:2px 8px;font-size:11px;background:transparent}
+.card.bc{border-color:var(--accent)}
+.bcrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.rawrow{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.rawrow label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dim)}
+.rawrow input[type=text],.rawrow input:not([type]){width:110px}
+.rawrow input{font:inherit;font-family:var(--mono);padding:7px 9px;
+  border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
+.rawrow .rawchk{flex-direction:row;align-items:center;gap:5px;padding-bottom:8px}
+.rawrow .rawchk input{width:auto}
+.rawpre{display:block;font-family:var(--mono);font-size:11px;margin-top:5px;color:var(--accent)}
+.bcinfo{flex:1 1 320px;min-width:0;font-size:13px;color:var(--dim)}
+.bcinfo b{color:var(--text)}
+.bcinfo code{font-family:var(--mono);font-size:12px}
+.bceid{display:block;font-family:var(--mono);font-size:11px;margin-top:3px}
+.bcrow input{width:150px;font:inherit;font-family:var(--mono);padding:7px 9px;
+  border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
+.busgrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stat .l{font-size:11px;color:var(--dim)}
+.stat .v{font-size:17px;font-weight:700;font-family:var(--mono);
+  font-variant-numeric:tabular-nums;margin-top:2px}
+.stat.hot .v{color:var(--bad)}
+.logbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  overflow:hidden}
+.logbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;
+  border-bottom:1px solid var(--line);font-size:12px;color:var(--dim)}
+.logbar label{display:flex;gap:4px;align-items:center;cursor:pointer}
+.logscroll{max-height:330px;overflow:auto}
+table.log{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;
+  white-space:nowrap}
+table.log th{position:sticky;top:0;background:var(--panel);text-align:left;
+  padding:6px 10px;color:var(--dim);font-weight:600;border-bottom:1px solid var(--line)}
+table.log td{padding:3px 10px;border-bottom:1px solid var(--line)}
+table.log tr.tx td{color:var(--accent)}
+table.log tr.txfail td{color:var(--bad)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:9;
+  max-width:min(620px,92vw);padding:11px 15px;border-radius:10px;font-size:13px;
+  box-shadow:0 6px 24px rgba(0,0,0,.22);opacity:0;pointer-events:none;
+  transition:opacity .15s}
+.toast.show{opacity:1}
+.toast.ok{background:var(--ok);color:#fff}
+.toast.err{background:var(--bad);color:#fff}
+.note{font-size:12px;color:var(--dim);margin-top:8px}
+.ro{background:var(--warnbg);color:var(--warn);border:1px solid var(--warn);
+  border-radius:10px;padding:10px 13px;margin-bottom:14px;font-size:13px}
+</style></head><body>
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <h1>AK45-36 CAN 대시보드</h1>
+      <div class="meta" id="meta"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button id="pause">일시정지</button>
+      <button class="danger" id="estop">전체 정지 (브레이크 0A)</button>
+    </div>
+  </div>
+
+  <div class="ro" id="robanner" hidden>
+    <b>읽기 전용 모드.</b> 프레임을 한 개도 보내지 않는다. 명령을 쓰려면
+    <code>--read-only</code> 없이 다시 띄운다 (단 ak45_ctrl·ROS2 노드를 먼저 끈다).
+  </div>
+
+  <section id="rawsec">
+    <h2>임의 프레임 전송 — AK45 가 아닌 장치용 (예: CAN ID <span id="bcid"></span> STM32 PWM 보드)</h2>
+    <div class="card bc">
+      <div class="note" style="margin:0 0 11px">
+        CAN ID <b id="bcid2"></b> 는 <b>STM32 보드</b>이고 PWM 으로 모터를 돌린다 —
+        AK45 서보 프로토콜이 아니다. 그래서 아래는 <b>페이로드를 해석하지 않고 그대로 보낸다.</b>
+        입력·표시 전부 10진수다 (16진수로 넣고 싶으면 <code>0x</code> 를 붙인다).
+      </div>
+      <div class="rawrow">
+        <label>CAN ID<input id="rawid" value="7" placeholder="7"></label>
+        <label>데이터 바이트 (공백 구분, 0~255, 최대 8개)
+          <input id="rawdata" placeholder="예: 0 1 134 160" style="min-width:220px"></label>
+        <label class="rawchk"><input type="checkbox" id="raweff" checked> 확장 프레임(29bit)</label>
+        <button class="primary" id="rawgo">1회 전송</button>
+      </div>
+      <div class="note" style="margin-top:10px">
+        ⚠️ <b>검사가 하나도 걸리지 않는다</b> — 목표각 상한(S1)도, 모터 에러 차단(S4)도 우회한다.
+        <b>재송신도 하지 않는다</b>(1회 전송). AK45 모터에 위치 명령을 이걸로 보내면
+        100ms 뒤 모터 쪽 타임아웃으로 홀딩 토크가 풀린다 — 모터는 위 카드로 제어해라.
+        <span class="rawpre"></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>모터 (ID 0~9 개별)</h2>
+    <div class="grid" id="motors"></div>
+    <div class="note">모든 수치는 10진수다. 회색 작은 숫자는 CAN 원시 정수값(int16)이다.
+      전송은 100ms 주기로 자동 재송신된다 — 멈추면 홀딩 토크가 풀린다.</div>
+  </section>
+
+  <section>
+    <h2>CAN 버스</h2>
+    <div class="busgrid" id="bus"></div>
+    <div class="note">bit-stuff·form 이 계속 오르면 <b>배선·종단저항 120Ω 문제</b>다 — 코드로 못 고친다.
+      ack 가 0 이 아니면 그 ID 를 받는 노드가 버스에 없다.</div>
+  </section>
+
+  <section>
+    <h2>프레임 로그</h2>
+    <div class="logbox">
+      <div class="logbar">
+        <label><input type="checkbox" id="hex"> 16진수 같이 보기</label>
+        <label><input type="checkbox" id="showrx" checked> 수신(RX)</label>
+        <label><input type="checkbox" id="showtx" checked> 송신(TX)</label>
+        <label><input type="checkbox" id="hidresend"> 재송신 숨기기</label>
+        <span style="margin-left:auto" id="logcount"></span>
+        <button id="clearlog" style="padding:3px 9px">비우기</button>
+      </div>
+      <div class="logscroll" id="logscroll">
+        <table class="log"><thead><tr>
+          <th>시각</th><th>방향</th><th>EID</th><th>함수</th><th>ID</th><th>DLC</th>
+          <th>데이터 바이트</th><th>내용</th>
+        </tr></thead><tbody id="logbody"></tbody></table>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let since = 0, paused = false, frames = [], lastState = null;
+const MAXLOG = 600;
+
+function toast(msg, ok){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (ok ? 'ok' : 'err');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.className = 'toast', 4200);
+}
+
+async function post(path, body){
+  try{
+    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'},
+                                body: JSON.stringify(body||{})});
+    const j = await r.json();
+    toast(j.msg || (j.ok ? '완료' : '실패'), !!j.ok);
+    return j;
+  }catch(e){ toast('요청 실패: ' + e.message, false); }
+}
+
+function badge(m){
+  if(m.err_code) return ['b-bad', '에러 ' + m.err_code + ' · ' + m.err_str];
+  if(!m.valid)   return ['b-warn', '피드백 없음'];
+  if(!m.watchdog_ok) return ['b-bad', '끊김 ' + m.stale_ms + 'ms'];
+  return ['b-ok', '정상 ' + m.stale_ms + 'ms'];
+}
+
+function renderMotors(s){
+  const host = $('#motors');
+  for(const m of s.motors){
+    let c = document.getElementById('m' + m.id);
+    if(!c){
+      c = document.createElement('div');
+      c.className = 'card'; c.id = 'm' + m.id;
+      c.innerHTML = `
+        <header>
+          <span class="mid">ID ${m.id}<small>16진수 ${m.id_hex} · 피드백 EID ${m.feedback_eid}</small></span>
+          <span class="badge"></span>
+        </header>
+        <table class="kv">
+          <tr><th>위치</th><td class="v-pos"></td></tr>
+          <tr><th>속도</th><td class="v-spd"></td></tr>
+          <tr><th>전류</th><td class="v-cur"></td></tr>
+          <tr><th>온도</th><td class="v-tmp"></td></tr>
+          <tr><th>에러</th><td class="v-err"></td></tr>
+          <tr><th>수신</th><td class="v-cnt"></td></tr>
+        </table>
+        <div class="tgt" hidden><span class="t-txt"></span><button class="t-clr">해제</button></div>
+        <div class="cmd">
+          <input type="number" step="0.1" placeholder="목표각 (도)" class="t-in">
+          <button class="primary t-go">전송</button>
+        </div>`;
+      host.appendChild(c);
+      const send = () => {
+        const v = c.querySelector('.t-in').value;
+        if(v === '') return toast('각도를 입력해라.', false);
+        post('/api/command', {id: m.id, deg: parseFloat(v)});
+      };
+      c.querySelector('.t-go').onclick = send;
+      c.querySelector('.t-in').onkeydown = e => { if(e.key === 'Enter') send(); };
+      c.querySelector('.t-clr').onclick = () => post('/api/clear', {id: m.id});
+    }
+    const [cls, txt] = badge(m);
+    const b = c.querySelector('.badge');
+    b.className = 'badge ' + cls; b.textContent = txt;
+    c.classList.toggle('dead', !m.valid);
+    const raw = v => `<span class="raw">원시 ${v}</span>`;
+    c.querySelector('.v-pos').innerHTML = m.pos_deg.toFixed(2) + ' 도' + raw(m.pos_raw);
+    c.querySelector('.v-spd').innerHTML = m.spd_erpm + ' ERPM' + raw(m.spd_raw);
+    c.querySelector('.v-cur').innerHTML = m.cur_a.toFixed(2) + ' A' + raw(m.cur_raw);
+    c.querySelector('.v-tmp').textContent = m.temp_c + ' ℃';
+    c.querySelector('.v-err').textContent = m.err_code + ' (' + m.err_str + ')';
+    c.querySelector('.v-cnt').textContent = m.rx_count + ' 프레임';
+    const tg = c.querySelector('.tgt');
+    tg.hidden = (m.target_deg === null);
+    if(m.target_deg !== null){
+      const d = (m.pos_deg - m.target_deg).toFixed(2);
+      c.querySelector('.t-txt').textContent =
+        '목표 ' + m.target_deg.toFixed(2) + '도 · 오차 ' + d + '도 · 재송신 중';
+    }
+    const dis = s.read_only;
+    c.querySelector('.t-go').disabled = dis;
+    c.querySelector('.t-in').disabled = dis;
+    c.querySelector('.t-clr').disabled = dis;
+  }
+}
+
+function renderBus(s){
+  const b = s.bus, ct = s.counters;
+  const cells = [
+    ['버스 상태', b.state_str, b.state !== 0],
+    ['수신 Hz', ct.rx_hz, false],
+    ['송신 Hz', ct.tx_hz, false],
+    ['수신 누적', ct.rx_frames, false],
+    ['송신 누적', ct.tx_frames, false],
+    ['에러 프레임', b.err_frames, b.err_frames > 0],
+    ['bit-stuff', b.bit_stuff_errors, b.bit_stuff_errors > 0],
+    ['form', b.form_errors, b.form_errors > 0],
+    ['ack', b.ack_errors, b.ack_errors > 0],
+    ['bus-off 횟수', b.busoff_count, b.busoff_count > 0],
+    ['자동복구 횟수', b.restart_count, false],
+    ['송신 실패', ct.tx_errors, ct.tx_errors > 0],
+  ];
+  $('#bus').innerHTML = cells.map(([l, v, hot]) =>
+    `<div class="stat${hot ? ' hot' : ''}"><div class="l">${l}</div><div class="v">${v}</div></div>`
+  ).join('');
+  if(ct.last_tx_error && ct.tx_errors > 0){
+    $('#bus').insertAdjacentHTML('beforeend',
+      `<div class="stat hot" style="grid-column:1/-1"><div class="l">마지막 송신 실패</div>
+       <div class="v" style="font-size:13px">${ct.last_tx_error}</div></div>`);
+  }
+}
+
+function parseBytes(txt){
+  const parts = txt.trim().split(/[\s,]+/).filter(x => x !== '');
+  const out = [];
+  for(const p of parts){
+    const v = /^0[xX]/.test(p) ? parseInt(p, 16) : parseInt(p, 10);
+    if(!Number.isInteger(v) || v < 0 || v > 255) throw new Error('바이트 값이 아니다: ' + p);
+    out.push(v);
+  }
+  if(out.length > 8) throw new Error('데이터는 최대 8바이트다 (지금 ' + out.length + '개)');
+  return out;
+}
+
+function rawPreview(){
+  const el = document.querySelector('.rawpre');
+  try{
+    const idTxt = $('#rawid').value.trim();
+    const id = /^0[xX]/.test(idTxt) ? parseInt(idTxt, 16) : parseInt(idTxt, 10);
+    if(!Number.isInteger(id) || id < 0) throw new Error('CAN ID 가 정수가 아니다');
+    const data = parseBytes($('#rawdata').value);
+    const eff = $('#raweff').checked;
+    el.textContent = '보낼 것: ID ' + id + ' (0x' + id.toString(16).toUpperCase()
+      + ') · ' + (eff ? '확장' : '표준') + ' · DLC ' + data.length
+      + (data.length ? ' · 데이터 ' + data.join(' ') : '');
+    el.style.color = 'var(--accent)';
+  }catch(e){
+    el.textContent = e.message;
+    el.style.color = 'var(--bad)';
+  }
+}
+
+function renderRaw(s){
+  $('#rawsec').hidden = false;
+  $('#bcid').textContent = s.raw_id;
+  $('#bcid2').textContent = s.raw_id;
+  const idIn = $('#rawid');
+  if(!idIn._init){ idIn.value = s.raw_id; idIn._init = true; rawPreview(); }
+  $('#rawgo').disabled = s.read_only;
+  for(const id of ['rawid','rawdata','raweff']) $('#' + id).disabled = s.read_only;
+}
+
+function renderMeta(s){
+  const mode = s.read_only ? '읽기 전용' : '제어';
+  $('#meta').innerHTML = [
+    `인터페이스 <b>${s.iface}</b>`, `모드 <b>${mode}</b>`,
+    `목표각 상한 <b>±${s.max_deg}도</b>`, `재송신 <b>${s.resend_ms}ms</b>`,
+    `워치독 <b>${s.watchdog_ms}ms</b>`, `피드백 함수ID <b>${s.feedback_func}</b>`,
+    `가동 <b>${s.uptime_s}초</b>`,
+  ].map(t => `<span class="chip">${t}</span>`).join('');
+  $('#robanner').hidden = !s.read_only;
+  $('#estop').disabled = s.read_only;
+}
+
+function renderLog(){
+  const hex = $('#hex').checked, rx = $('#showrx').checked, tx = $('#showtx').checked;
+  const hid = $('#hidresend').checked;
+  const rows = frames.filter(f => {
+    if(f.dir === 'rx' && !rx) return false;
+    if(f.dir !== 'rx' && !tx) return false;
+    if(hid && f.note.includes('재송신')) return false;
+    return true;
+  }).slice(-MAXLOG).reverse();
+  const num = (v, w) => hex ? `${v} <span style="opacity:.55">(0x${v.toString(16).toUpperCase().padStart(w,'0')})</span>` : v;
+  $('#logbody').innerHTML = rows.map(f => {
+    const cls = f.dir === 'rx' ? '' : (f.dir === 'tx' ? 'tx' : 'txfail');
+    const dirtxt = f.dir === 'rx' ? 'RX' : (f.dir === 'tx' ? 'TX' : 'TX실패');
+    const data = f.data.map(b => hex
+      ? `${String(b).padStart(3)}/0x${b.toString(16).toUpperCase().padStart(2,'0')}`
+      : String(b).padStart(3)).join(' ');
+    return `<tr class="${cls}"><td>${f.t}</td><td>${dirtxt}</td><td>${num(f.eid,4)}</td>
+      <td>${f.func} ${f.func_name}</td><td>${f.id}</td><td>${f.dlc}</td>
+      <td>${data}</td><td>${f.note || ''}</td></tr>`;
+  }).join('');
+  $('#logcount').textContent = `${rows.length} / ${frames.length} 프레임`;
+}
+
+async function tick(){
+  if(!paused){
+    try{
+      const r = await fetch('/api/state?since=' + since);
+      const s = await r.json();
+      since = s.log_seq;
+      if(s.frames.length){
+        frames = frames.concat(s.frames).slice(-2000);
+      }
+      lastState = s;
+      renderMeta(s); renderRaw(s); renderMotors(s); renderBus(s); renderLog();
+    }catch(e){
+      $('#meta').innerHTML = '<span class="chip" style="color:var(--bad)">서버 연결 끊김 — 터미널을 확인해라</span>';
+    }
+  }
+  setTimeout(tick, 250);
+}
+
+$('#estop').onclick = () => post('/api/stop');
+const rawSend = () => {
+  try{
+    const idTxt = $('#rawid').value.trim();
+    const id = /^0[xX]/.test(idTxt) ? parseInt(idTxt, 16) : parseInt(idTxt, 10);
+    if(!Number.isInteger(id) || id < 0) return toast('CAN ID 를 정수로 넣어라.', false);
+    post('/api/raw', {can_id: id, data: parseBytes($('#rawdata').value),
+                      eff: $('#raweff').checked});
+  }catch(e){ toast(e.message, false); }
+};
+$('#rawgo').onclick = rawSend;
+for(const id of ['rawid','rawdata']){
+  $('#' + id).oninput = rawPreview;
+  $('#' + id).onkeydown = e => { if(e.key === 'Enter') rawSend(); };
+}
+$('#raweff').onchange = rawPreview;
+rawPreview();
+$('#pause').onclick = e => {
+  paused = !paused;
+  e.target.textContent = paused ? '재개' : '일시정지';
+  e.target.classList.toggle('primary', paused);
+};
+$('#clearlog').onclick = () => { frames = []; renderLog(); };
+for(const id of ['hex','showrx','showtx','hidresend']) $('#' + id).onchange = renderLog;
+tick();
+</script>
+</body></html>
