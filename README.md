@@ -1,3 +1,27 @@
+> # ⚠️ 이 저장소는 둘로 나뉘었습니다 (2026-10-23)
+>
+> CAN 계층과 ROS2 계층을 별도 저장소로 분리했습니다. **새 작업은 아래에서 합니다.**
+>
+> | 새 저장소 | 담는 것 |
+> |---|---|
+> | **[team-jax/ak45_can](https://github.com/team-jax/ak45_can)** | CAN 제어 라이브러리 + CLI(`ak45_ctrl`, `ak45_ctrl_demo`) + 웹 대시보드 + 프로토콜 문서. **ROS 의존 0** |
+> | **[team-jax/ak45_ros2](https://github.com/team-jax/ak45_ros2)** | ROS2 Humble 패키지 `ak45_ros2` (`ak45_node`, `ak45_deg`) + 사양서 `docs/ros2.md` |
+>
+> 둘 다 쓰려면 `~/ros2_ws/src/` 아래에 **형제로** 클론합니다
+> (`ak45_ros2` 의 `AK45_CAN_DIR` 기본값이 `../ak45_can` 입니다):
+>
+> ```bash
+> cd ~/ros2_ws/src
+> git clone https://github.com/team-jax/ak45_can.git
+> git clone https://github.com/team-jax/ak45_ros2.git
+> cd ~/ros2_ws && colcon build --packages-select ak45_ros2
+> ```
+>
+> 이 저장소는 히스토리 보존용으로 남겨 둡니다. `ak45_can` 이 여기 커밋 전체를
+> 물려받았으므로 `git log`·`git blame` 은 그쪽에서도 그대로 됩니다.
+
+---
+
 # Can — CubeMars AK45-36 로봇팔 제어
 
 CubeMars **AK45-36 KV80** 액추에이터 **6대(CAN ID 0x01~0x06)** 를 Linux + CANable(SocketCAN) 환경에서
