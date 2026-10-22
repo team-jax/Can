@@ -2,9 +2,12 @@
 # Git에 커밋된 바이너리는 glibc 2.38 환경에서 링크된 것이라 다른 PC(2.35)에서
 # "version `GLIBC_2.38' not found" 로 실행되지 않았다. 어차피 각자 make 해야 한다.
 *.o
-/ak45_ctrl
-/ak45_ctrl_demo
-/ak45_demo
+/ak45_can/ak45_ctrl
+/ak45_can/ak45_ctrl_demo
+
+# Python 캐시 (tools/)
+__pycache__/
+*.pyc
 
 # ROS2 워크스페이스 산출물 (패키지 안에는 생기지 않지만 방어용)
 build/

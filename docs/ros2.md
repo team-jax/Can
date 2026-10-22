@@ -26,6 +26,10 @@
 1. 이 문서에 적힌 **이름·값·로그 문구를 그대로** 쓴다. "더 나은 이름"으로 바꾸지 않는다.
 2. `[미정]` 표시 항목을 임의로 채우지 않는다. 필요해지면 코드를 쓰지 말고 질문한다.
 3. `ak45_36_socketcan_control.h` / `.cpp`는 **한 글자도 수정하지 않는다.**
+   → **2026-10-15 보충**: 이 두 파일은 더 이상 패키지 안에 **사본으로 존재하지 않는다.**
+   `ak45_can/{include,src}/` 의 원본을 `CMakeLists.txt` 가 직접 컴파일한다. 규칙 자체는 유지되지만
+   의미가 달라졌다 — "사본을 건드리지 마라"가 아니라 **"CAN 계층을 ROS 작업 중에 바꾸지 마라"** 다
+   (바꾸면 `ak45_ctrl` CLI 도 같이 바뀐다). 바꿔야 하면 CAN 계층 작업으로 따로 올린다.
 4. ~~**모터 이동 명령을 보내지 않는다.**~~ → **Phase 2에서 해제됨(§13).** 단 **해제된 것은 `ak45_set_position` 하나뿐이다.**
    `set_rpm` / `set_current` / `set_duty` / `set_pos_spd` / `set_origin` / `set_current_brake` 를 직접 호출하는 코드는
    **여전히 작성하면 안 된다.** (종료 시 라이브러리 내부에서 나가는 브레이크 프레임은 예외 — §7.5)
@@ -93,8 +97,12 @@ Jetson으로 옮길 때 확인할 것 두 가지:
 
 ### 2.2 디렉토리 트리
 
+> ⚠️ **아래 트리는 2026-08-20 작성 당시의 것이다. 2026-10-15 구조가 바뀌었다** — 라이브러리 사본
+> (`include/ak45_ros2/`, `src/ak45_36_socketcan_control.cpp`)이 **삭제**되고 `ak45_can/` 의 원본을
+> 직접 컴파일한다. 실제 현재 구조는 바로 아래 「2.2b」를 본다.
+
 ```
-~/ros2_ws/src/ak45_ros2/
+~/ros2_ws/src/ak45_ros2/          ← 당시(2026-08-20)
 ├── package.xml
 ├── CMakeLists.txt
 ├── README.md
@@ -109,11 +117,39 @@ Jetson으로 옮길 때 확인할 것 두 가지:
     └── state_publisher.launch.py           ← 신규 (§10)
 ```
 
+### 2.2b 현재 구조 (2026-10-15 — CAN/ROS 분리)
+
+```
+Can/                                  ← ~/ros2_ws/src/Can 가 여기를 가리키는 심링크
+├── ak45_can/                         # CAN 계층. ROS 의존 0, make 로 빌드
+│   ├── include/ak45_36_socketcan_control.h    ← 원본, 유일본
+│   ├── src/ak45_36_socketcan_control.cpp      ← 원본, 유일본
+│   ├── apps/main.cpp · apps/demo_ramp.cpp
+│   └── Makefile
+├── ak45_ros2/                        # ROS 계층, colcon 으로 빌드
+│   ├── package.xml · CMakeLists.txt · README.md
+│   ├── config/ak45_node.yaml
+│   ├── src/ak45_node.cpp             ← 이 패키지의 유일한 자체 소스
+│   ├── scripts/ak45_deg
+│   └── launch/ak45_node.launch.py
+├── tools/ak45_vcan_sim.py
+└── docs/   ros2.md(이 문서) · STATUS.md · FINDINGS.md · run.txt
+```
+
+**심링크 요건이 바뀌었다.** 예전에는 `~/ros2_ws/src/ak45_ros2` → `Can/ak45_ros2` 였으나,
+`CMakeLists.txt` 가 `../ak45_can` 을 찾으므로 **저장소 루트**를 걸어야 한다:
+
+```bash
+ln -sfn ~/바탕화면/Can ~/ros2_ws/src/Can
+```
+
+없으면 CMake 가 FATAL 로 멈추고 `ln` 명령을 그대로 알려 준다.
+
 - `msg/`, `srv/`, `action/`는 **만들지 않는다** (§4.4).
 - 원본 `.cpp`가 `#include "ak45_36_socketcan_control.h"`(따옴표, 경로 없음)이므로 `include/ak45_ros2/`를 include 경로에 넣으면 그대로 컴파일된다.
-- 라이브러리는 **submodule이 아니라 파일 복사**로 편입하고, 복사 시점의 원본 커밋 해시를 `README.md`에 적는다.
-- `STATUS.md`는 이 패키지가 아니라 **저장소 루트**에 둔다. 프로젝트 전체 상태를 적는 문서이지 이 패키지만의 것이 아니기 때문이다.
-- ~~[미정] 이 패키지를 어느 저장소에 커밋할지~~ → **확정(2026-08-27): `team-jax/Can` 저장소 안 `ak45_ros2/` 디렉토리.** `~/ros2_ws/src/ak45_ros2`는 그곳을 가리키는 **심볼릭 링크**다 (§13.1). 파일명은 §13.1 표대로 바뀌었다.
+- ~~라이브러리는 **submodule이 아니라 파일 복사**로 편입하고, 복사 시점의 원본 커밋 해시를 `../README.md`에 적는다.~~ → **2026-10-15 폐기.** 사본도 submodule도 아니다. `CMakeLists.txt` 의 `AK45_CAN_DIR` 로 원본 경로를 가리킨다. 커밋 해시 기록은 불필요해졌다.
+- `STATUS.md`는 이 패키지가 아니라 **저장소의 `docs/`** 에 둔다(2026-10-15 이전에는 루트). 프로젝트 전체 상태를 적는 문서이지 이 패키지만의 것이 아니기 때문이다.
+- ~~[미정] 이 패키지를 어느 저장소에 커밋할지~~ → **확정(2026-08-27): `team-jax/Can` 저장소 안 `ak45_ros2/` 디렉토리.** 파일명은 §13.1 표대로 바뀌었다. **2026-10-15**: 심링크는 `ak45_ros2` 가 아니라 **저장소 루트**(`~/ros2_ws/src/Can`)를 가리킨다 (§2.2b).
 
 ### 2.3 `package.xml` (전문)
 
@@ -169,7 +205,7 @@ find_package(Threads REQUIRED)
 
 add_executable(ak45_state_publisher_node
   src/ak45_state_publisher_node.cpp
-  src/ak45_36_socketcan_control.cpp
+  src/ak45_36_socketcan_control.cpp      # ← 2026-10-15: ${AK45_CAN_DIR}/src/... 로 변경됨
 )
 
 # -Wall -Wextra: 원본 Makefile이 이미 쓰는 옵션이라 원본도 통과가 보증된다.
@@ -179,7 +215,7 @@ set_source_files_properties(src/ak45_state_publisher_node.cpp
   PROPERTIES COMPILE_OPTIONS "-Wpedantic")
 
 target_include_directories(ak45_state_publisher_node PRIVATE
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/ak45_ros2>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/ak45_ros2>   # ← 2026-10-15: ${AK45_CAN_DIR}/include 로 변경됨
 )
 
 ament_target_dependencies(ak45_state_publisher_node
@@ -202,12 +238,17 @@ install(DIRECTORY launch config
 ament_package()
 ```
 
+> ⚠️ **위 전문은 2026-08-20 당시 것이다.** 현재 실물은 실행 파일 이름이 `ak45_node` 이고,
+> 라이브러리를 `AK45_CAN_DIR`(기본 `../ak45_can`)에서 가져오며 `ak45_deg` 설치 항목이 추가됐다.
+> **정본은 `ak45_ros2/CMakeLists.txt` 파일 자체다.**
+
 **경고 옵션을 이렇게 나눈 근거**: GCC 13에서 `-std=c++17 -Wall -Wextra -Wpedantic`으로 원본 라이브러리를 컴파일하면 경고 0개다 `[실측]`. 그러나 **타깃은 Ubuntu 22.04(GCC 11/12)이고 GCC 버전이 다르면 경고 집합도 다르다.** 원본 Makefile이 실제로 쓰는 옵션(`-Wall -Wextra` `[Makefile]`)만 원본에 적용하고, 보증 없는 `-Wpedantic`은 우리 파일에만 거는 것이 안전하다. 만약 22.04에서 원본에 경고가 뜨면, **원본을 고치지 말고** 이 문서 부록 E에 기록한 뒤 해당 파일의 경고 옵션을 낮춘다.
 
-### 2.5 `README.md`에 반드시 적을 5가지
+### 2.5 `../README.md`에 반드시 적을 5가지
 
-1. 복사해 온 `team-jax/Can` 원본 **커밋 해시**
-2. **CAN 인터페이스는 `can0` 고정.** 바꾸려면 `include/ak45_ros2/ak45_36_socketcan_control.h`의 `CAN_INTERFACE`를 수정하고 재빌드해야 한다 (부록 B C4)
+1. ~~복사해 온 `team-jax/Can` 원본 **커밋 해시**~~ → **2026-10-15**: 사본이 없어졌으므로 대신
+   **CAN 라이브러리를 `../ak45_can` 에서 직접 쓴다는 사실과 `~/ros2_ws/src/Can` 심링크 요건**을 적는다
+2. **CAN 인터페이스는 `can0` 고정.** 바꾸려면 `../ak45_can/include/ak45_36_socketcan_control.h`의 `CAN_INTERFACE`를 수정하고 재빌드해야 한다 (부록 B C4)
 3. 실행 전 준비 명령 (§11.1)
 4. **읽기 전용 노드**이며 모터를 움직이지 않는다. 단 종료 시 브레이크 0A 프레임 6개가 나간다 (§7.5)
 5. `joint_names`에 **중복 이름을 넣으면 안 된다.** 노드는 검증하지 않고, `robot_state_publisher`가 마지막 값으로 덮어써서 TF가 **조용히** 어긋난다
@@ -843,8 +884,9 @@ feat(ros2): AK45 상태 발행 노드 추가 (읽기 전용, 검증 V0~V15 통�
 나중에 뜬 쪽은 반드시 죽는다(V9/P9로 실측 확인).
 
 **저장소 위치 확정 (부록 C 10-12 종결)**: 패키지는 **`team-jax/Can` 저장소 안 `ak45_ros2/`** 에 둔다.
-`~/ros2_ws/src/ak45_ros2` 는 그곳을 가리키는 **심볼릭 링크**다. 라이브러리 `.h`/`.cpp` 는 여전히
-저장소 루트 원본의 **복사본**이며 수정 금지 규칙(§0 규칙 3)은 그대로다.
+**2026-10-15 갱신**: 심링크는 `~/ros2_ws/src/Can` → **저장소 루트**이고, 라이브러리 `.h`/`.cpp` 는
+**복사본이 아니라 `ak45_can/` 의 원본**을 직접 컴파일한다(§2.2b). 수정 금지 규칙(§0 규칙 3)은
+"CAN 계층을 ROS 작업 중에 바꾸지 않는다"는 뜻으로 유지된다.
 
 ## 13.2 구독 토픽 계약
 
@@ -1330,7 +1372,7 @@ Phase 1 검증(V0~V15) 통과 후 ~~별도 사양서를 작성한다~~ → **§1
 # 부록 E. 문서 동기화 규칙 및 이력
 
 상수를 바꾸면 **네 곳을 같은 커밋에서** 고친다:
-`ak45_36_socketcan_control.h`(값) → 같은 줄 주석 → `AGENTS.md` 소프트리밋 절 → 이 문서 부록 B.1·부록 C.
+`ak45_can/include/ak45_36_socketcan_control.h`(값) → 같은 줄 주석 → `../AGENTS.md` 소프트리밋 절 → 이 문서 부록 B.1·부록 C.
 
 | 날짜 | 버전 | 변경 |
 |---|---|---|
@@ -1341,14 +1383,14 @@ Phase 1 검증(V0~V15) 통과 후 ~~별도 사양서를 작성한다~~ → **§1
 | 2026-08-20 | v2.1 | 실물 소스 대조: C4 행번호, 워치독 경계, C6·C7 신설, NPP=21 함정, AK40 문서 판단 정정 |
 | **2026-08-20** | **v3.0** | **검토 4회차(부록 F).** V3 절차 실행 가능성 문제 해결, `-lm` 제거, 경고 옵션 근거 정정, `frame_id` 파라미터 삭제, 부록 번호 정리, 미결 질문을 문서 밖으로 분리, 저장소 위치 미정 신규 |
 | **2026-08-27** | **v4.0** | **§13 Phase 2 신설** — 명령 수신·재송신·S1~S4·파라미터 4개·진단 KeyValue 9개. 이름 확정(`ak45_node`), 저장소 위치 확정(10-12 종결), 부록 D 6개 항목 전건 처리, P1~P10 실기 검증 통과. §0 규칙 4 부분 해제 |
-| — | — | 라이브러리 복사 시점 커밋 해시: **(복사 시 기재)** |
+| — | — | ~~라이브러리 복사 시점 커밋 해시~~ → 2026-10-15 사본 폐지로 불필요 |
 
 ### E.1 Phase 1 착수 전 정리 작업 (별도 커밋)
 
-- [x] ~~`AGENTS.md` **Git 병합 충돌 마커 제거**~~ → **완료.** 2026-08-27 재확인 시 `<<<<<<<` / `=======` / `>>>>>>>` **0건**. (v3.0 작성 시점 실재 확인 위치는 83·84·245행이었다)
+- [x] ~~`../AGENTS.md` **Git 병합 충돌 마커 제거**~~ → **완료.** 2026-08-27 재확인 시 `<<<<<<<` / `=======` / `>>>>>>>` **0건**. (v3.0 작성 시점 실재 확인 위치는 83·84·245행이었다)
 - [x] ~~`STATUS.md` 신규 생성 (저장소 루트)~~ → **완료.** 저장소 루트에 존재하며 요구된 7개 절(했던 일 / 하는 일 / 할 일 / 전체 목표 / 세부 목표 / 사용 기술 / 문제점·해결방안)을 **그 순서 그대로** 갖췄다. **단 Git 미추적 상태**(`??`)라 커밋이 남아 있다
 - [ ] `SOFT_LIMIT_ERPM` 통일 (10-3) — Phase 2 착수 전까지 — **절반 완료 (2026-08-27 확인)**
-  - [x] ~~**문서-코드 불일치 해소**~~ → **완료.** `AGENTS.md`(초본 `10000`)를 실제 헤더값 `500`에 맞췄다. 현재 `.h:27` · `AGENTS.md:82` · `README.md:155,173` **전부 `500`으로 일치**한다 (`STATUS.md` P5 = 해결)
+  - [x] ~~**문서-코드 불일치 해소**~~ → **완료.** `../AGENTS.md`(초본 `10000`)를 실제 헤더값 `500`에 맞췄다. 현재 `.h:27` · `AGENTS.md:82` · `README.md:155,173` **전부 `500`으로 일치**한다 (`STATUS.md` P5 = 해결)
   - [ ] **정식값 확정** → **미완. NPP 확정이 선행 조건이고 그 NPP는 10-1에서 "매뉴얼에 없음" 확정 상태**라 현재로선 계산이 불가능하다. 공식: `출력축 6 rad/s × NPP × 36`. CubeMarsTool에서 Motor type을 AK45-36으로 바꾼 뒤 Read Parameters로 실측해야 풀린다
   - ℹ️ **Phase 2(위치 제어)를 막지는 않는다.** 이 상수는 `ak45_set_rpm()`에만 걸리는데(`[lib .cpp:311]`) Phase 2는 `ak45_set_position()`만 쓰고 `set_rpm` 호출이 금지돼 있다. 위치 명령을 제한하는 것은 `SOFT_LIMIT_POS_DEG 360.0f` 쪽이다
 - [x] ~~저장소 라이선스 확인~~ → **LICENSE 파일 없음 확정.** 팀이 정해야 함 (10-8)
@@ -1379,7 +1421,7 @@ v2.1을 다시 읽고 원본을 재실행·재대조하며 발견한 것.
 
 원본 소스 재대조 결과 아래는 전부 일치했다:
 
-`CAN_INTERFACE` = `.h:15`, `SOFT_LIMIT_ERPM 500` = `.h:27`, 워치독 판정 `elapsed < 200` = `.cpp:169`(경계 200ms 포함 실패), `pthread_join` 무조건 호출 = `.cpp:243`, flock 미해제 = `.cpp:190–225`, 재송신 루프 위치 = `main.cpp:164` / `demo_ramp.cpp:19,163`, 명령↔피드백 동일 축 근거 = `demo_ramp.cpp:105,143`, NPP=21 오염 경고 = `AGENTS.md:190`, `SOFT_LIMIT_ERPM` 불일치 = `AGENTS.md:42`, LICENSE 파일 없음, `AGENTS.md` 충돌 마커 83/84/245행.
+`CAN_INTERFACE` = `.h:15`, `SOFT_LIMIT_ERPM 500` = `.h:27`, 워치독 판정 `elapsed < 200` = `.cpp:169`(경계 200ms 포함 실패), `pthread_join` 무조건 호출 = `.cpp:243`, flock 미해제 = `.cpp:190–225`, 재송신 루프 위치 = `main.cpp:164` / `demo_ramp.cpp:19,163`, 명령↔피드백 동일 축 근거 = `demo_ramp.cpp:105,143`, NPP=21 오염 경고 = `AGENTS.md:190`, `SOFT_LIMIT_ERPM` 불일치 = `AGENTS.md:42`, LICENSE 파일 없음, `../AGENTS.md` 충돌 마커 83/84/245행.
 
 매뉴얼 쪽: 피드백 스케일 4종, 에러코드 0~7, CAN ID 계산식, 업로드 주파수 1~500Hz·DLC 8, 1Mbps, AK45-36 MIT 상한(±6.0 rad/s, ±34 N·m), 보드별 전류 정격.
 

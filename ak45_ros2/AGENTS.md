@@ -5,7 +5,10 @@
 ## Purpose
 CubeMars AK45-36 모터 6대(CAN ID 0x01~0x06)의 SocketCAN 피드백을 폴링해 `/joint_states`(50Hz)와 `/diagnostics`(2Hz)로 발행하는 **ROS2 Humble 단일 노드 패키지**. 프로젝트 Phase 1에 해당하며 **읽기 전용이다 — 모터 이동 명령을 보내지 않는다**(종료 시 라이브러리 내부에서 나가는 Current Brake 0A 프레임 6개는 예외).
 
-**이 패키지의 사양서는 저장소 밖에 있다**: `/home/jaejun/바탕화면/Can/ros2.md` (v3.0). 이름·값·QoS·로그 문구·검증 항목 V0~V15가 전부 확정값으로 적혀 있고, **구현은 그 문서를 그대로 따르는 것이 계약이다.** 프로젝트 전체 상태는 같은 저장소의 `STATUS.md`를 본다.
+**사양서는 같은 저장소의 `../docs/ros2.md`** (v3.0)다. 이름·값·QoS·로그 문구·검증 항목 V0~V15가 전부 확정값으로 적혀 있고, **구현은 그 문서를 그대로 따르는 것이 계약이다.** 프로젝트 전체 상태는 `../docs/STATUS.md`를 본다.
+
+**CAN 라이브러리는 이 패키지에 없다.** `../ak45_can` 의 원본을 `CMakeLists.txt` 가 직접 컴파일한다
+(2026-10-15 분리. 그 전에는 `src/`·`include/` 에 사본이 있었다). 라이브러리를 고칠 일은 `ak45_can/` 에서 한다.
 
 > **이 패키지는 아직 어느 Git 저장소에도 속하지 않는다** (`STATUS.md` P11). `~/ros2_ws/src/` 아래에만 있어 버전 관리되지 않으므로, 파일을 고치면 되돌릴 수 없다. 커밋 위치 결정(`team-jax/Can`에 디렉토리 추가 vs 별도 저장소)이 선행 과제다.
 >
@@ -16,14 +19,14 @@ CubeMars AK45-36 모터 6대(CAN ID 0x01~0x06)의 SocketCAN 피드백을 폴링�
 | File | Description |
 |------|-------------|
 | `package.xml` | ament_cmake 패키지 매니페스트. 의존은 `rclcpp`/`sensor_msgs`/`diagnostic_msgs` 3개 + 실행시점 `launch`/`launch_ros`. **`<license>TODO</license>`** — 저장소에 LICENSE가 없어 팀이 정해야 채울 수 있다(`STATUS.md` P12). `ament_lint_auto`는 **의도적으로 넣지 않았다**(서식 린터가 수정 금지 원본 파일과 충돌) |
-| `CMakeLists.txt` | C++17, 실행 파일 `ak45_state_publisher_node`. **경고 옵션이 파일별로 다르다** — `-Wall -Wextra`는 전체, `-Wpedantic`은 `set_source_files_properties`로 우리 노드 파일에만. 원본 Makefile이 보증하지 않는 옵션을 수정 금지 파일에 걸지 않기 위한 것이다(`ros2.md` §2.4) |
-| `README.md` | 사용자용 문서. **라이브러리 복사 원본 커밋 해시(`893d663fdb26f1bf5c203067545a9f9888e4e301`)** 를 기록하는 곳이므로 복사본을 갱신하면 여기도 같이 고친다 |
+| `CMakeLists.txt` | C++17, 실행 파일 `ak45_node`. **경고 옵션이 파일별로 다르다** — `-Wall -Wextra`는 전체, `-Wpedantic`은 `set_source_files_properties`로 우리 노드 파일에만. 원본 Makefile이 보증하지 않는 옵션을 수정 금지 파일에 걸지 않기 위한 것이다(`ros2.md` §2.4) |
+| `README.md` | 사용자용 문서. CAN 라이브러리를 `../ak45_can` 에서 직접 쓰는 방식과 `~/ros2_ws/src/Can` 심링크 요건을 설명한다 |
 
 ## Subdirectories
 
 | Directory | Purpose |
 |-----------|---------|
-| `src/` | 노드 구현 + 복사해 온 제어 라이브러리 `.cpp` (see `src/AGENTS.md`) |
+| `src/` | 노드 구현 `ak45_node.cpp` **하나뿐.** 제어 라이브러리 사본은 없다 (see `src/AGENTS.md`) |
 | `include/` | 헤더 경로 컨테이너 (see `include/AGENTS.md`) |
 | `config/` | 파라미터 YAML (see `config/AGENTS.md`) |
 | `launch/` | launch 파일 (see `launch/AGENTS.md`) |
@@ -75,8 +78,8 @@ ros2 launch ak45_ros2 state_publisher.launch.py
 ## Dependencies
 
 ### Internal
-- `src/ak45_state_publisher_node.cpp` → `include/ak45_ros2/ak45_36_socketcan_control.h`
-- 원본 라이브러리 출처: `/home/jaejun/바탕화면/Can` 저장소 (커밋 `893d663`). **submodule이 아니라 파일 복사**다
+- `src/ak45_node.cpp` → `../ak45_can/include/ak45_36_socketcan_control.h`
+- CAN 라이브러리: **사본도 submodule도 아니다.** `CMakeLists.txt` 의 `AK45_CAN_DIR` 로 `../ak45_can` 의 원본 `.cpp` 를 소스 목록에 직접 넣는다
 
 ### External
 - `rclcpp` — 노드 베이스, 타이머, 퍼블리셔

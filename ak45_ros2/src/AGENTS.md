@@ -4,28 +4,35 @@
 # src
 
 ## Purpose
-노드 구현 파일과, 저장소에서 복사해 온 제어 라이브러리 구현부가 함께 있다. **두 파일의 취급 규칙이 정반대**이므로 구분해서 다뤄야 한다 — 하나는 자유롭게 고치는 우리 코드이고, 하나는 한 글자도 고칠 수 없는 복사본이다.
+**이 디렉터리에는 노드 구현 파일 하나만 있다.** 2026-10-15 CAN 계층 분리 전에는 제어 라이브러리 `.cpp` 사본이 함께 있었지만, 지금은 `../../ak45_can/src/` 의 원본을 `CMakeLists.txt` 가 직접 컴파일한다.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `ak45_state_publisher_node.cpp` | **우리 코드.** `Ak45StatePublisher` 클래스 전체 + `main()`. 253행 단일 파일이며 헤더를 따로 두지 않는다(노드가 하나뿐이라 외부에 노출할 인터페이스가 없다) |
-| `ak45_36_socketcan_control.cpp` | **원본 복사본 — 수정 금지.** 저장소 커밋 `893d663`의 파일과 바이트 단위로 동일해야 한다. SocketCAN 초기화, 수신 pthread, 피드백 파싱(0x29), 워치독, `flock` 잠금 |
+| `ak45_node.cpp` | **우리 코드.** 노드 클래스 전체 + `main()`. 단일 파일이며 헤더를 따로 두지 않는다(노드가 하나뿐이라 외부에 노출할 인터페이스가 없다) |
+
+빌드에 들어가지만 **여기 없는** 파일:
+
+| 경로 | 취급 |
+|---|---|
+| `../../ak45_can/src/ak45_36_socketcan_control.cpp` | CAN 계층의 원본. SocketCAN 초기화, 수신 pthread, 피드백 파싱(0x29), 워치독, `flock` 잠금 |
+| `../../ak45_can/include/ak45_36_socketcan_control.h` | 두 계층이 공유하는 유일한 인터페이스 |
 
 ## For AI Agents
 
-### 수정 금지 파일 취급
-`ak45_36_socketcan_control.cpp`를 고쳐야 할 상황이 오면 **여기서 고치지 않는다.** 원본 저장소(`/home/jaejun/바탕화면/Can`)에서 고치고 → 이 파일로 다시 복사하고 → 패키지 `README.md`의 커밋 해시를 갱신한다. 동일성 확인:
+### CAN 라이브러리를 고쳐야 할 때
+**사본이 없으므로 복사·동기화 작업은 없다.** `ak45_can/` 에서 고치면 여기 빌드에 바로 반영된다.
+대신 **한 번의 수정이 CLI 와 ROS 노드 양쪽에 동시에 영향을 준다** — 둘 다 빌드해 확인한다:
 
 ```bash
-diff /home/jaejun/바탕화면/Can/ak45_36_socketcan_control.cpp \
-     ~/ros2_ws/src/ak45_ros2/src/ak45_36_socketcan_control.cpp
+cd ~/바탕화면/Can/ak45_can && make clean && make
+cd ~/ros2_ws && colcon build --packages-select ak45_ros2
 ```
 
-이 파일은 `-Wpedantic` 없이 컴파일된다. 원본 Makefile이 `-Wall -Wextra`만 쓰므로 그 이상은 통과가 보증되지 않기 때문이다. 경고가 뜨면 **원본을 고치지 말고** `ros2.md` 부록 E에 기록한 뒤 경고 옵션을 낮춘다.
+라이브러리 `.cpp` 는 `-Wpedantic` 없이 컴파일된다. `ak45_can/Makefile` 이 `-Wall -Wextra`만 쓰므로 그 이상은 통과가 보증되지 않기 때문이다. 경고가 뜨면 **라이브러리를 고치지 말고** `../../docs/ros2.md` 부록 E에 기록한 뒤 경고 옵션을 낮춘다.
 
-### 노드 파일 구조 (`ros2.md` 부록 A가 정본)
+### 노드 파일 구조 (`../../docs/ros2.md` 부록 A가 정본)
 생성자는 **이 순서를 바꾸면 안 된다**:
 
 1. `rclcpp::Node("ak45_state_publisher")`
@@ -56,14 +63,14 @@ diff /home/jaejun/바탕화면/Can/ak45_36_socketcan_control.cpp \
 ## Testing Requirements
 ```bash
 cd ~/ros2_ws && colcon build --packages-select ak45_ros2   # 경고 0개
-grep -nE "std::mutex|std::thread" src/ak45_state_publisher_node.cpp    # 출력 없어야 정상
-grep -nE "ak45_set_|emergency_stop" src/ak45_state_publisher_node.cpp  # 출력 없어야 정상
+grep -nE "std::mutex|std::thread" src/ak45_node.cpp    # 출력 없어야 정상
+grep -nE "ak45_set_|emergency_stop" src/ak45_node.cpp  # 출력 없어야 정상
 ```
 
 `can0` 없이도 실패 경로는 검증된다(전부 종료 코드 1이어야 한다):
 ```bash
-ros2 run ak45_ros2 ak45_state_publisher_node --ros-args -p "joint_names:=['a','b','c']"; echo $?
-ros2 run ak45_ros2 ak45_state_publisher_node --ros-args -p publish_rate_hz:=600.0; echo $?
+ros2 run ak45_ros2 ak45_node --ros-args -p "joint_names:=['a','b','c']"; echo $?
+ros2 run ak45_ros2 ak45_node --ros-args -p publish_rate_hz:=600.0; echo $?
 ```
 
 ## Common Patterns
@@ -74,7 +81,7 @@ ros2 run ak45_ros2 ak45_state_publisher_node --ros-args -p publish_rate_hz:=600.
 ## Dependencies
 
 ### Internal
-- `../include/ak45_ros2/ak45_36_socketcan_control.h` — 두 `.cpp` 모두 이것만 include한다
+- `../../ak45_can/include/ak45_36_socketcan_control.h` — 빌드에 들어가는 두 `.cpp` 모두 이것만 include한다. `CMakeLists.txt` 의 `target_include_directories` 가 `${AK45_CAN_DIR}/include` 를 넣어 준다
 
 ### External
 - `rclcpp`, `sensor_msgs`, `diagnostic_msgs`, `pthread`

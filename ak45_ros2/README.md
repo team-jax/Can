@@ -10,33 +10,38 @@ CubeMars AK45-36 6개를 다루는 ROS2 Humble 노드 **하나**(`ak45_node`).
 > 노드를 **둘로 나누지 마라.** 라이브러리가 `flock(/tmp/ak45_ctrl.lock)`으로 프로세스당 1개만
 > `ak45_init()`에 성공시킨다. 나중에 뜬 쪽은 반드시 죽는다.
 
-## 1. 라이브러리 원본 커밋 해시
+## 1. CAN 라이브러리는 `../ak45_can` 의 원본을 직접 쓴다
 
-`include/ak45_ros2/ak45_36_socketcan_control.h` 와 `src/ak45_36_socketcan_control.cpp` 는
-`team-jax/Can` 저장소에서 복사해 온 파일이며 **한 글자도 수정하지 않는다.**
+이 패키지에는 **라이브러리 사본이 없다.** `CMakeLists.txt` 가 저장소의 CAN 계층
+`../ak45_can` 에 있는 원본을 그대로 컴파일한다.
 
 | 항목 | 값 |
 |---|---|
-| 원본 저장소 | `team-jax/Can` — **이제 이 패키지도 같은 저장소 안에 있다** (`Can/ak45_ros2/`) |
-| 원본 파일 경로 | 저장소 루트의 `ak45_36_socketcan_control.{h,cpp}` |
-| 복사 시점 커밋 해시 | `893d663fdb26f1bf5c203067545a9f9888e4e301` |
-| 복사 일자 | 2026-08-20 |
-| 내용 동일성 | **2026-08-27 `diff` 확인 — 원본과 완전히 동일** |
+| 헤더 | `../ak45_can/include/ak45_36_socketcan_control.h` |
+| 구현 | `../ak45_can/src/ak45_36_socketcan_control.cpp` |
+| 끌어오는 방법 | `CMakeLists.txt` 의 `AK45_CAN_DIR` (기본 `${CMAKE_CURRENT_SOURCE_DIR}/../ak45_can`) |
+| 분리 일자 | 2026-10-15 — 그 전에는 여기 `src/`·`include/` 에 **사본**이 있었다 |
 
-원본을 고칠 일이 생기면 **저장소 루트에서 고치고** 여기 복사본을 다시 맞춘 뒤 이 해시를 갱신한다.
+사본이 없으므로 **동기화 작업도, 커밋 해시 기록도 필요 없다.** 라이브러리는 `ak45_can/` 에서 고친다.
 
-> ⚠️ **같은 저장소 안에 같은 파일이 두 벌 있다.** 루트 원본은 `Makefile`이 `-std=c++11`로,
-> 여기 복사본은 `colcon`이 **C++17**로 컴파일한다. 양쪽에서 모두 컴파일되는 코드만 써야 한다.
-> `diff`로 주기적으로 확인할 것:
+> ⚠️ **같은 파일을 두 표준으로 컴파일한다.** `ak45_can/Makefile` 은 `-std=c++11`,
+> 여기 `colcon` 은 **C++17**. 양쪽에서 모두 컴파일되는 코드만 써야 한다.
+> 라이브러리를 고쳤으면 양쪽을 다 빌드해 확인한다:
 > ```bash
-> diff ../ak45_36_socketcan_control.h  include/ak45_ros2/ak45_36_socketcan_control.h
-> diff ../ak45_36_socketcan_control.cpp src/ak45_36_socketcan_control.cpp
+> cd ../ak45_can && make clean && make
+> cd ~/ros2_ws && colcon build --packages-select ak45_ros2
+> ```
+>
+> ⚠️ `~/ros2_ws/src/Can` 은 **저장소 루트**를 가리키는 심링크여야 한다.
+> `ak45_ros2` 만 가리키면 `../ak45_can` 이 워크스페이스 밖을 가리켜 CMake 가 FATAL 로 멈춘다:
+> ```bash
+> ln -sfn ~/바탕화면/Can ~/ros2_ws/src/Can
 > ```
 
 ## 2. CAN 인터페이스는 `can0` 고정
 
 `CAN_INTERFACE` 가 `#define "can0"` 인 **컴파일 타임 상수**다
-(`include/ak45_ros2/ak45_36_socketcan_control.h:15`).
+(`../ak45_can/include/ak45_36_socketcan_control.h:15`).
 
 → **`can_interface` ROS 파라미터는 존재하지 않는다.** 인터페이스를 바꾸려면
 헤더의 `CAN_INTERFACE` 를 직접 고치고 재빌드해야 한다.

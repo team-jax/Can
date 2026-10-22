@@ -25,7 +25,7 @@
   ip -details link show can0        # state UP, bitrate 1000000 확인
 
   # Phase 0 CLI 를 쓸 때만
-  cd ~/바탕화면/Can
+  cd ~/바탕화면/Can/ak45_can
   make clean && make               # clean 필수 (아래 주의 1)
 
   # ROS2 노드를 쓸 때만
@@ -181,7 +181,7 @@
 
   ** 방법 A 의 노드를 먼저 끈다. flock 때문에 동시 실행 불가 **
 
-  cd ~/바탕화면/Can
+  cd ~/바탕화면/Can/ak45_can
   ./ak45_ctrl 2>/dev/null            # 2>/dev/null 은 워치독 도배 숨김 (주의 2)
 
   프롬프트가 뜬다 :
